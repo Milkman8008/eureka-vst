@@ -42,10 +42,11 @@ void Engine::Init(double host_sample_rate) {
       resampler_left_.latency_in_input_samples() * host_sample_rate / internal_rate));
   for (float& p : pan_) p = 0.5f;
   pan_coefficient_ = static_cast<float>(1.0 - std::exp(-1.0 / (0.002 * internal_rate)));
-  distribution_ = DISTRIBUTION_LAYER;
-  parts_per_note_ = 1;
-  round_robin_next_ = 0;
-  memset(note_parts_, 0, sizeof(note_parts_));
+  voice_mode_ = VOICE_MODE_PER_PART;
+  unison_ = 1;
+  sustain_ = false;
+  age_counter_ = 0;
+  ResetAllocation();
   lfo_refresh_cycle_ = 0;
   clock_accumulator_ = 0.0;
 }
@@ -87,6 +88,8 @@ void Engine::SetVoiceAssignment(const uint8_t* voice_parts) {
       parts_[p].AssignVoices(new_masks[p]);
     }
   }
+  // Engine-allocated notes refer to cards that may have changed owner.
+  ResetAllocation();
   // Voices nobody owns must not keep sounding.
   for (uint8_t v = 0; v < kNumVoices; ++v) {
     if (voice_parts_[v] == kNoPart) {
@@ -95,18 +98,103 @@ void Engine::SetVoiceAssignment(const uint8_t* voice_parts) {
   }
 }
 
-void Engine::SetNoteDistribution(uint8_t mode, uint8_t parts_per_note) {
-  if (mode >= DISTRIBUTION_LAST) mode = DISTRIBUTION_LAYER;
-  if (parts_per_note < 1) parts_per_note = 1;
-  if (parts_per_note > kNumParts) parts_per_note = kNumParts;
-  if (mode != distribution_) {
+void Engine::SetVoiceMode(uint8_t mode, uint8_t unison) {
+  if (mode >= VOICE_MODE_LAST) mode = VOICE_MODE_PER_PART;
+  if (unison < 1) unison = 1;
+  if (unison > kNumVoices) unison = kNumVoices;
+  if (mode != voice_mode_) {
     // Notes held under the old scheme would not get their note-off.
-    AllNotesOff();
-    memset(note_parts_, 0, sizeof(note_parts_));
-    round_robin_next_ = 0;
+    for (uint8_t i = 0; i < kNumParts; ++i) parts_[i].AllNotesOff();
+    ResetAllocation();
   }
-  distribution_ = mode;
-  parts_per_note_ = parts_per_note;
+  voice_mode_ = mode;
+  unison_ = unison;
+}
+
+void Engine::ResetAllocation() {
+  memset(voice_note_, 0xff, sizeof(voice_note_));
+  memset(voice_channel_, 0, sizeof(voice_channel_));
+  memset(voice_age_, 0, sizeof(voice_age_));
+  memset(note_voices_, 0, sizeof(note_voices_));
+  sustained_ = 0;
+  cyclic_next_ = 0;
+}
+
+void Engine::ReleaseAllocatedVoice(uint8_t v) {
+  const uint8_t owner = voice_parts_[v];
+  if (voice_note_[v] != 0xff) {
+    note_voices_[voice_channel_[v]][voice_note_[v]] &= ~(1 << v);
+  }
+  if (owner < kNumParts) {
+    parts_[owner].ReleaseVoice(v);
+  }
+  voice_note_[v] = 0xff;
+  sustained_ &= ~(1 << v);
+  voice_age_[v] = ++age_counter_;
+}
+
+void Engine::AllocatedNoteOn(uint8_t channel, uint8_t note, uint8_t velocity) {
+  // A key pressed again while still sounding: release it first.
+  for (uint8_t v = 0; v < kNumVoices; ++v) {
+    if (note_voices_[channel][note] & (1 << v)) ReleaseAllocatedVoice(v);
+  }
+
+  // Voicecards that belong to a part accepting this note.
+  uint8_t candidates[kNumVoices];
+  uint8_t num_candidates = 0;
+  for (uint8_t n = 0; n < kNumVoices; ++n) {
+    const uint8_t v = voice_mode_ == VOICE_MODE_CYCLIC ? (cyclic_next_ + n) % kNumVoices : n;
+    const uint8_t owner = voice_parts_[v];
+    if (owner < kNumParts && mappings_[owner].receive_channel(channel) &&
+        mappings_[owner].accept_note(note)) {
+      candidates[num_candidates++] = v;
+    }
+  }
+  if (!num_candidates) {
+    return;
+  }
+  const uint8_t count = unison_ < num_candidates ? unison_ : num_candidates;
+
+  uint8_t chosen[kNumVoices];
+  if (voice_mode_ == VOICE_MODE_CYCLIC) {
+    // Next cards in order, busy or not (like the hardware's cyclic mode).
+    for (uint8_t k = 0; k < count; ++k) chosen[k] = candidates[k];
+    cyclic_next_ = (chosen[count - 1] + 1) % kNumVoices;
+  } else {
+    // Poly: free cards idle longest first, then the oldest busy ones.
+    for (uint8_t k = 0; k < count; ++k) {
+      int best = -1;
+      for (uint8_t c = 0; c < num_candidates; ++c) {
+        const uint8_t v = candidates[c];
+        bool taken = false;
+        for (uint8_t j = 0; j < k; ++j) taken = taken || chosen[j] == v;
+        if (taken) continue;
+        if (best < 0) { best = v; continue; }
+        const bool v_free = voice_note_[v] == 0xff, best_free = voice_note_[best] == 0xff;
+        if ((v_free && !best_free) ||
+            (v_free == best_free && voice_age_[v] < voice_age_[best])) {
+          best = v;
+        }
+      }
+      chosen[k] = static_cast<uint8_t>(best);
+    }
+  }
+
+  uint8_t mask = 0;
+  for (uint8_t k = 0; k < count; ++k) {
+    const uint8_t v = chosen[k];
+    if (voice_note_[v] != 0xff) {
+      // Stolen from another held note.
+      note_voices_[voice_channel_[v]][voice_note_[v]] &= ~(1 << v);
+    }
+    sustained_ &= ~(1 << v);
+    parts_[voice_parts_[v]].PlayVoice(v, note, velocity, k);
+    voice_note_[v] = note;
+    voice_channel_[v] = channel;
+    voice_age_[v] = ++age_counter_;
+    mask |= 1 << v;
+  }
+  note_voices_[channel][note] = mask;
 }
 
 void Engine::NoteOn(uint8_t channel, uint8_t note, uint8_t velocity) {
@@ -116,32 +204,8 @@ void Engine::NoteOn(uint8_t channel, uint8_t note, uint8_t velocity) {
     NoteOff(channel, note);
     return;
   }
-  if (distribution_ == DISTRIBUTION_ROUND_ROBIN) {
-    // Release whatever this key is still holding before re-assigning it.
-    if (note_parts_[channel][note]) {
-      NoteOff(channel, note);
-    }
-    // Parts that may play this note, starting from the round robin position.
-    uint8_t mask = 0;
-    uint8_t taken = 0;
-    uint8_t last = round_robin_next_;
-    for (uint8_t n = 0; n < kNumParts && taken < parts_per_note_; ++n) {
-      const uint8_t i = (round_robin_next_ + n) % kNumParts;
-      if (parts_[i].num_voices() && mappings_[i].receive_channel(channel) &&
-          mappings_[i].accept_note(note)) {
-        mask |= 1 << i;
-        ++taken;
-        last = i;
-      }
-    }
-    if (!mask) {
-      return;
-    }
-    round_robin_next_ = (last + 1) % kNumParts;
-    note_parts_[channel][note] = mask;
-    for (uint8_t i = 0; i < kNumParts; ++i) {
-      if (mask & (1 << i)) parts_[i].NoteOn(note, velocity);
-    }
+  if (voice_mode_ != VOICE_MODE_PER_PART) {
+    AllocatedNoteOn(channel, note, velocity);
     return;
   }
   for (uint8_t i = 0; i < kNumParts; ++i) {
@@ -154,11 +218,15 @@ void Engine::NoteOn(uint8_t channel, uint8_t note, uint8_t velocity) {
 void Engine::NoteOff(uint8_t channel, uint8_t note) {
   channel &= 0x0f;
   note &= 0x7f;
-  if (distribution_ == DISTRIBUTION_ROUND_ROBIN) {
-    const uint8_t mask = note_parts_[channel][note];
-    note_parts_[channel][note] = 0;
-    for (uint8_t i = 0; i < kNumParts; ++i) {
-      if (mask & (1 << i)) parts_[i].NoteOff(note);
+  if (voice_mode_ != VOICE_MODE_PER_PART) {
+    const uint8_t mask = note_voices_[channel][note];
+    for (uint8_t v = 0; v < kNumVoices; ++v) {
+      if (!(mask & (1 << v))) continue;
+      if (sustain_) {
+        sustained_ |= 1 << v;  // Released when the pedal comes up.
+      } else {
+        ReleaseAllocatedVoice(v);
+      }
     }
     return;
   }
@@ -170,6 +238,20 @@ void Engine::NoteOff(uint8_t channel, uint8_t note) {
 }
 
 void Engine::ControlChange(uint8_t channel, uint8_t controller, uint8_t value) {
+  if (controller == 64 && voice_mode_ != VOICE_MODE_PER_PART) {
+    // Sustain pedal for engine-allocated voices.
+    sustain_ = value >= 64;
+    if (!sustain_) {
+      for (uint8_t v = 0; v < kNumVoices; ++v) {
+        if (sustained_ & (1 << v)) ReleaseAllocatedVoice(v);
+      }
+    }
+    return;
+  }
+  if ((controller == kAllSoundOff || controller == kAllNotesOff) &&
+      voice_mode_ != VOICE_MODE_PER_PART) {
+    ResetAllocation();
+  }
   for (uint8_t i = 0; i < kNumParts; ++i) {
     if (!mappings_[i].receive_channel(channel)) {
       continue;
@@ -196,10 +278,12 @@ void Engine::ChannelPressure(uint8_t channel, uint8_t value) {
 }
 
 void Engine::PolyPressure(uint8_t channel, uint8_t note, uint8_t value) {
-  if (distribution_ == DISTRIBUTION_ROUND_ROBIN) {
-    const uint8_t mask = note_parts_[channel & 0x0f][note & 0x7f];
-    for (uint8_t i = 0; i < kNumParts; ++i) {
-      if (mask & (1 << i)) parts_[i].Aftertouch(note, value << 1);
+  if (voice_mode_ != VOICE_MODE_PER_PART) {
+    const uint8_t mask = note_voices_[channel & 0x0f][note & 0x7f];
+    for (uint8_t v = 0; v < kNumVoices; ++v) {
+      if ((mask & (1 << v)) && voice_parts_[v] < kNumParts) {
+        parts_[voice_parts_[v]].VoiceAftertouch(v, value << 1);
+      }
     }
     return;
   }
@@ -212,12 +296,12 @@ void Engine::PolyPressure(uint8_t channel, uint8_t note, uint8_t value) {
 
 void Engine::AllNotesOff() {
   for (uint8_t i = 0; i < kNumParts; ++i) parts_[i].AllNotesOff();
-  memset(note_parts_, 0, sizeof(note_parts_));
+  ResetAllocation();
 }
 
 void Engine::AllSoundOff() {
   for (uint8_t i = 0; i < kNumParts; ++i) parts_[i].AllSoundOff();
-  memset(note_parts_, 0, sizeof(note_parts_));
+  ResetAllocation();
 }
 
 void Engine::RenderControlBlock() {

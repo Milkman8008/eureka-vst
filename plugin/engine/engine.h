@@ -27,15 +27,18 @@ namespace plugin {
 static const uint8_t kNumParts = 6;
 static const uint8_t kNoPart = 0xff;
 
-// How incoming notes reach the parts (plug-in extension; the hardware only
-// has layer/split).
-enum NoteDistribution {
-  // Every part whose channel and key range accept the note plays it.
-  DISTRIBUTION_LAYER,
-  // Each note goes to the next accepting part(s) in turn: with one voice per
-  // part and a different patch on each, notes cycle through the patches.
-  DISTRIBUTION_ROUND_ROBIN,
-  DISTRIBUTION_LAST
+// How notes are given to the six voicecards (plug-in extension).
+enum VoiceMode {
+  // As on the hardware: every part plays every note on its own voices, with
+  // its own Voicing (poly, mono, 2x unison, cyclic). Parts layer.
+  VOICE_MODE_PER_PART,
+  // Notes step through voicecards 1..6 in order, whatever part each belongs
+  // to; each card sounds its own part's patch.
+  VOICE_MODE_CYCLIC,
+  // Each note takes the free card that has been idle longest, stealing the
+  // oldest note when all are busy.
+  VOICE_MODE_POLY,
+  VOICE_MODE_LAST
 };
 
 // PartMapping in controller/multi.h (voice allocation is kept separately).
@@ -86,9 +89,9 @@ class Engine {
   Part& part(uint8_t index) { return parts_[index]; }
   const Part& part(uint8_t index) const { return parts_[index]; }
 
-  // Note distribution; parts_per_note (1..6) applies to round robin.
-  void SetNoteDistribution(uint8_t mode, uint8_t parts_per_note);
-  uint8_t note_distribution() const { return distribution_; }
+  // Voice allocation; unison (1..6) = voicecards per note in cyclic/poly.
+  void SetVoiceMode(uint8_t mode, uint8_t unison);
+  uint8_t voice_mode() const { return voice_mode_; }
 
   // Tempo for clock-synced LFO rates (24 clock ticks per quarter note).
   void SetTempo(double bpm) { tempo_bpm_ = bpm > 1.0 ? bpm : 1.0; }
@@ -104,6 +107,11 @@ class Engine {
  private:
   void RenderControlBlock();
 
+  // Engine-level allocation (cyclic / poly).
+  void AllocatedNoteOn(uint8_t channel, uint8_t note, uint8_t velocity);
+  void ReleaseAllocatedVoice(uint8_t voice);
+  void ResetAllocation();
+
   VoiceCard voices_[kNumVoices];
   AnalogVoice analog_[kNumVoices];
   Part parts_[kNumParts];
@@ -118,11 +126,16 @@ class Engine {
   float pan_[kNumVoices];  // Smoothed pan per voice, 0..1.
   float pan_coefficient_ = 0.0f;
 
-  uint8_t distribution_ = DISTRIBUTION_LAYER;
-  uint8_t parts_per_note_ = 1;
-  uint8_t round_robin_next_ = 0;  // Part to try first for the next note.
-  // Round robin: parts each held note was sent to, by channel and note.
-  uint8_t note_parts_[16][128];
+  uint8_t voice_mode_ = VOICE_MODE_PER_PART;
+  uint8_t unison_ = 1;
+  uint8_t cyclic_next_ = 0;           // Voicecard to try first.
+  uint8_t voice_note_[kNumVoices];    // Note held by each card, 0xff = free.
+  uint8_t voice_channel_[kNumVoices];
+  uint32_t voice_age_[kNumVoices];    // When each card was last (re)assigned.
+  uint32_t age_counter_ = 0;
+  bool sustain_ = false;
+  uint8_t sustained_ = 0;             // Cards whose note-off waits for the pedal.
+  uint8_t note_voices_[16][128];      // Cards each held note plays.
   uint8_t lfo_refresh_cycle_ = 0;
   double tempo_bpm_ = 120.0;
   double clock_accumulator_ = 0.0;

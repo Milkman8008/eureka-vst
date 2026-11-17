@@ -419,57 +419,98 @@ int ActiveMask(const Engine& engine) {
   return mask;
 }
 
-void TestRoundRobin() {
+void Play(Engine& engine, uint8_t note) {
+  engine.NoteOn(0, note, 100);  // Everything on MIDI channel 1.
+  Render(engine, 48000.0, 0.02);
+}
+
+void TestVoiceModes() {
+  using ambika::plugin::VOICE_MODE_CYCLIC;
+  using ambika::plugin::VOICE_MODE_POLY;
   const double rate = 48000.0;
   Engine engine;
   engine.Init(rate);
-  // One voice per part, every part on all channels, a different patch each.
-  const uint8_t one_each[6] = { 0, 1, 2, 3, 4, 5 };
-  engine.SetVoiceAssignment(one_each);
-  for (uint8_t p = 0; p < 6; ++p) {
+
+  // Cards split across parts, notes all on channel 1: cyclic still steps
+  // through every card, each with its own part's patch.
+  const uint8_t three_parts[6] = { 0, 0, 1, 1, 2, 2 };
+  engine.SetVoiceAssignment(three_parts);
+  for (uint8_t p = 0; p < 3; ++p) {
     engine.part(p).SetPatchValue(ambika::PRM_PATCH_OSC1_SHAPE, 1 + p);
   }
-  engine.SetNoteDistribution(ambika::plugin::DISTRIBUTION_ROUND_ROBIN, 1);
-
+  engine.SetVoiceMode(VOICE_MODE_CYCLIC, 1);
   bool cycles = true;
   for (int n = 0; n < 6; ++n) {
-    engine.NoteOn(0, 60 + n, 100);
-    Render(engine, rate, 0.02);
+    Play(engine, 60 + n);
     cycles = cycles && ActiveMask(engine) == (1 << (n + 1)) - 1;
   }
-  Check(cycles, "round robin: six notes land on voices 1, 2, 3, 4, 5, 6 in turn");
-  engine.NoteOff(0, 62);  // The third note: voice 3 only.
+  Check(cycles, "cyclic: notes on one channel step through cards 1-6 across three parts");
+  Play(engine, 72);  // Seventh note: back to card 1.
+  Check(engine.voice_level(0) > 0, "cyclic: the seventh note wraps around to card 1");
+  engine.NoteOff(0, 62);  // Third note: card 3 only.
   Render(engine, rate, 1.5);
-  Check(ActiveMask(engine) == 0x3b, "round robin: note-off releases the part that played the note");
+  Check(ActiveMask(engine) == 0x3b, "cyclic: note-off releases the card that played the note");
   engine.AllSoundOff();
   Render(engine, rate, 0.05);
 
-  // Two parts per note: 1+2, then 3+4, then 5+6.
-  engine.SetNoteDistribution(ambika::plugin::DISTRIBUTION_LAYER, 1);
-  engine.SetNoteDistribution(ambika::plugin::DISTRIBUTION_ROUND_ROBIN, 2);
-  engine.NoteOn(0, 60, 100);
-  Render(engine, rate, 0.02);
+  // Each card uses its owner's settings: part 2 at half volume.
+  auto settings = engine.part(1).settings();
+  settings.volume = 60;
+  engine.part(1).SetSettings(settings);
+  engine.SetVoiceMode(VOICE_MODE_POLY, 1);
+  engine.SetVoiceMode(VOICE_MODE_CYCLIC, 1);
+  for (int n = 0; n < 4; ++n) Play(engine, 60 + n);
+  Render(engine, rate, 0.2);
+  Check(engine.voice_level(2) < engine.voice_level(0) * 0.7 && engine.voice_level(3) == engine.voice_level(2),
+        "cyclic: each card sounds with its own part's settings");
+  engine.AllSoundOff();
+  Render(engine, rate, 0.05);
+
+  // Unison across parts: 2 then 3 cards per note.
+  engine.SetVoiceMode(VOICE_MODE_POLY, 1);
+  engine.SetVoiceMode(VOICE_MODE_CYCLIC, 2);
+  Play(engine, 60);
   const int first = ActiveMask(engine);
-  engine.NoteOn(0, 64, 100);
-  Render(engine, rate, 0.02);
-  const int second = ActiveMask(engine);
-  Check(first == 0x03 && second == 0x0f, "round robin x2: each note triggers two voices");
+  Play(engine, 64);
+  Check(first == 0x03 && ActiveMask(engine) == 0x0f, "cyclic unison 2: each note plays two cards (1+2, 3+4)");
   engine.AllSoundOff();
   Render(engine, rate, 0.05);
-
-  // Three parts per note.
-  engine.SetNoteDistribution(ambika::plugin::DISTRIBUTION_LAYER, 1);
-  engine.SetNoteDistribution(ambika::plugin::DISTRIBUTION_ROUND_ROBIN, 3);
-  engine.NoteOn(0, 60, 100);
-  Render(engine, rate, 0.02);
-  Check(ActiveMask(engine) == 0x07, "round robin x3: a note triggers three voices");
-  engine.NoteOn(0, 67, 100);
-  Render(engine, rate, 0.02);
-  Check(ActiveMask(engine) == 0x3f, "round robin x3: the next note takes the other three");
+  engine.SetVoiceMode(VOICE_MODE_POLY, 1);
+  engine.SetVoiceMode(VOICE_MODE_CYCLIC, 3);
+  Play(engine, 60);
+  const int stack = ActiveMask(engine);
+  Play(engine, 67);
+  Check(stack == 0x07 && ActiveMask(engine) == 0x3f, "cyclic unison 3: notes play cards 1-3, then 4-6");
   engine.NoteOff(0, 60);
   engine.NoteOff(0, 67);
   Render(engine, rate, 1.5);
-  Check(ActiveMask(engine) == 0, "round robin x3: note-offs release all six voices");
+  Check(ActiveMask(engine) == 0, "cyclic unison 3: note-offs release all six cards");
+
+  // Poly: free cards first, the oldest note stolen when all are busy.
+  engine.SetVoiceMode(VOICE_MODE_POLY, 1);
+  for (int n = 0; n < 6; ++n) Play(engine, 48 + n);
+  Check(ActiveMask(engine) == 0x3f, "poly: six notes use six cards");
+  engine.NoteOff(0, 50);  // Card 3 becomes free.
+  Render(engine, rate, 1.5);
+  Play(engine, 70);
+  Check(ActiveMask(engine) == 0x3f, "poly: a new note takes the free card");
+  Play(engine, 71);  // All busy: steals the oldest (card 1, note 48).
+  engine.NoteOff(0, 48);  // Its note-off must not release the stolen card.
+  Render(engine, rate, 0.3);
+  Check(engine.voice_level(0) > 0, "poly: stealing hands the card to the new note");
+  engine.AllSoundOff();
+  Render(engine, rate, 0.05);
+
+  // Sustain pedal holds engine-allocated voices.
+  engine.SetVoiceMode(VOICE_MODE_CYCLIC, 1);
+  engine.ControlChange(0, 64, 127);
+  Play(engine, 60);
+  engine.NoteOff(0, 60);
+  Render(engine, rate, 1.0);
+  const bool held = engine.voice_level(0) > 0;
+  engine.ControlChange(0, 64, 0);
+  Render(engine, rate, 1.5);
+  Check(held && ActiveMask(engine) == 0, "cyclic: sustain holds notes until the pedal is released");
 }
 
 }  // namespace
@@ -486,7 +527,7 @@ int main() {
   TestMultiPart();
   TestSurgeFilters();
   TestPan();
-  TestRoundRobin();
+  TestVoiceModes();
   std::printf("%s (%d failure%s)\n", g_failures ? "FAILED" : "OK",
               g_failures, g_failures == 1 ? "" : "s");
   return g_failures ? EXIT_FAILURE : EXIT_SUCCESS;

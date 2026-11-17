@@ -6,14 +6,19 @@ namespace ambika_plugin
 {
     namespace Palette
     {
-        const juce::Colour background { 0xff121419 };
-        const juce::Colour panel { 0xff1b1e25 };
-        const juce::Colour panelRaised { 0xff232731 };
-        const juce::Colour outline { 0xff2e3440 };
-        const juce::Colour track { 0xff343b48 };
-        const juce::Colour text { 0xffdde1e8 };
-        const juce::Colour dimText { 0xff858e9e };
-        const juce::Colour faintText { 0xff5b6372 };
+        enum class Theme { Dark, Light };
+        // Switches every colour below; repaint (or rebuild) the UI afterwards.
+        void setTheme (Theme);
+        Theme theme();
+
+        extern juce::Colour background;
+        extern juce::Colour panel;
+        extern juce::Colour panelRaised;
+        extern juce::Colour outline;
+        extern juce::Colour track;
+        extern juce::Colour text;
+        extern juce::Colour dimText;
+        extern juce::Colour faintText;
 
         // One colour per part; the editor's accent follows the edited part.
         juce::Colour part (int index);
@@ -23,6 +28,8 @@ namespace ambika_plugin
     {
     public:
         EurekaLookAndFeel();
+        // Re-reads the palette (after Palette::setTheme).
+        void applyTheme();
 
         void setAccent (juce::Colour colour);
         juce::Colour accent() const { return accentColour; }

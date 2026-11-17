@@ -373,7 +373,9 @@ namespace ambika_plugin
 
     void PresetBar::paint (juce::Graphics& g)
     {
-        g.setColour (Palette::panel.darker (0.25f).withMultipliedAlpha (currentSkin().settings.headerOpacity));
+        const auto barColour = Palette::theme() == Palette::Theme::Dark ? Palette::panel.darker (0.25f)
+                                                                         : Palette::panelRaised.darker (0.02f);
+        g.setColour (barColour.withMultipliedAlpha (currentSkin().settings.headerOpacity));
         g.fillRect (getLocalBounds());
         g.setColour (Palette::outline);
         g.drawHorizontalLine (getHeight() - 1, 0.0f, (float) getWidth());

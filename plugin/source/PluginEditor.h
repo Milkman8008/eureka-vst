@@ -96,36 +96,40 @@ namespace ambika_plugin
         std::vector<std::array<ParameterControl*, 3>> modifierRows;
     };
 
+    // The six voice cards: which part (patch) each one plays, and how notes
+    // are given to the cards.
     class MultiPage final : public Page
     {
     public:
         MultiPage (APVTS&, AmbikaAudioProcessor&, std::function<void (int)> editPart);
         void resized() override;
         void poll() override;
-        void bindPart (int) override {}  // Shows all parts at once.
+        void bindPart (int) override {}  // Shows all voices at once.
 
     private:
-        void paintParts (juce::Graphics&);
-        void paintVoices (juce::Graphics&);
-        void paintDistribution (juce::Graphics&);
+        void paintCards (juce::Graphics&);
+        void paintAllocation (juce::Graphics&);
+        void paintSplits (juce::Graphics&);
+        juce::Rectangle<int> cardBounds (int voice) const;
 
         AmbikaAudioProcessor& processor;
-        Panel* parts = nullptr;
-        Panel* voices = nullptr;
-        Panel* distribution = nullptr;
-        ParameterControl* distributionMode = nullptr;
-        ParameterControl* partsPerNote = nullptr;
-        std::unique_ptr<ParameterReader> distributionReader;
-        struct PartRow
+        Panel* cards = nullptr;
+        Panel* allocation = nullptr;
+        Panel* splits = nullptr;
+        struct SplitRow
         {
-            ParameterControl *channel = nullptr, *low = nullptr, *high = nullptr, *pan = nullptr;
+            ParameterControl *low = nullptr, *high = nullptr;
             Display* range = nullptr;
-            std::unique_ptr<juce::TextButton> edit;
         };
-        std::array<PartRow, kNumParts> rows;
+        std::array<SplitRow, kNumParts> splitRows;
         std::array<ParameterControl*, kNumVoices> owners {};
+        std::array<std::unique_ptr<juce::TextButton>, kNumVoices> editButtons;
+        ParameterControl* voiceMode = nullptr;
+        ParameterControl* unison = nullptr;
+        std::unique_ptr<ParameterReader> allocationReader;
         std::array<uint8_t, kNumVoices> shownLevels {};
         std::array<uint8_t, kNumVoices> shownOwners {};
+        std::array<juce::String, kNumParts> shownNames;
     };
 
     class AmbikaAudioProcessorEditor final : public juce::AudioProcessorEditor,
@@ -145,10 +149,12 @@ namespace ambika_plugin
         void showPage (int index);  // 0 synth, 1 mod, 2 multi, 3 presets
         void editPart (int part);
         void showSaveDialog();
+        void toggleTheme();
 
     private:
         class Content;
         void timerCallback() override;
+        void buildContent (int page);
 
         AmbikaAudioProcessor& audioProcessor;
         EurekaLookAndFeel lookAndFeel;

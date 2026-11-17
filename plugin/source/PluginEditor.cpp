@@ -362,192 +362,307 @@ namespace ambika_plugin
     //==============================================================================
     namespace
     {
-        constexpr int kPartRowHeight = 44;
-        constexpr int kPartTableTop = 52;
-        constexpr int kColumnChannel = 130, kColumnLow = 250, kColumnHigh = 414, kColumnRange = 584,
-                      kColumnPan = 846, kColumnVoices = 1000;
+        constexpr int kCardHeight = 200;
+        constexpr int kSplitRowHeight = 46;
+        constexpr int kSplitTop = 52;
+        constexpr int kSplitLow = 150, kSplitHigh = 318, kSplitRange = 486;
+        constexpr int kCardTop = 34;
     }
 
     MultiPage::MultiPage (APVTS& s, AmbikaAudioProcessor& p, std::function<void (int)> editPart)
         : Page (s), processor (p)
     {
-        parts = &panel ("Parts");
-        for (int i = 0; i < kNumParts; ++i)
-        {
-            auto& row = rows[(size_t) i];
-            row.channel = &control (*parts, partChannelId (i), {}, ControlStyle::Combo, false);
-            row.low = &control (*parts, partKeyLowId (i), {}, ControlStyle::Bar, false);
-            row.high = &control (*parts, partKeyHighId (i), {}, ControlStyle::Bar, false);
-            row.range = &display<KeyRangeDisplay> (*parts, state, i);
-            row.pan = &control (*parts, partParameterId (i, juce::String ("part_pan")), {}, ControlStyle::Bar, false);
-            row.edit = std::make_unique<juce::TextButton> ("Edit");
-            row.edit->setColour (juce::TextButton::textColourOffId, Palette::part (i));
-            row.edit->onClick = [editPart, i] { editPart (i); };
-            parts->addAndMakeVisible (*row.edit);
-        }
-        parts->onPaint = [this] (juce::Graphics& g) { paintParts (g); };
-
-        voices = &panel ("Voice cards");
+        cards = &panel ("Voice cards");
         for (int v = 0; v < kNumVoices; ++v)
-            owners[(size_t) v] = &control (*voices, voicePartId (v), "Voice " + n (v + 1), ControlStyle::Combo, false);
-        voices->onPaint = [this] (juce::Graphics& g) { paintVoices (g); };
+        {
+            owners[(size_t) v] = &control (*cards, voicePartId (v), "Plays", ControlStyle::Combo, false);
+            auto& edit = editButtons[(size_t) v];
+            edit = std::make_unique<juce::TextButton> ("Edit part");
+            edit->onClick = [this, editPart, v]
+            {
+                const auto owner = processor.voiceOwner (v);
+                if (owner < kNumParts)
+                    editPart (owner);
+            };
+            cards->addAndMakeVisible (*edit);
+        }
+        cards->onPaint = [this] (juce::Graphics& g) { paintCards (g); };
 
-        distribution = &panel ("Note distribution");
-        distributionMode = &control (*distribution, kDistributionId, "Notes go to", ControlStyle::Combo, false);
-        partsPerNote = &control (*distribution, kPartsPerNoteId, "Parts per note", ControlStyle::Knob, false);
-        distributionReader = std::make_unique<ParameterReader> (
-            state, std::vector<juce::String> { kDistributionId, kPartsPerNoteId }, false);
-        distribution->onPaint = [this] (juce::Graphics& g) { paintDistribution (g); };
+        allocation = &panel ("Voice allocation");
+        voiceMode = &control (*allocation, kVoiceModeId, "Voice mode", ControlStyle::Combo, false);
+        unison = &control (*allocation, kUnisonId, "Unison", ControlStyle::Knob, false);
+        allocationReader = std::make_unique<ParameterReader> (
+            state, std::vector<juce::String> { kVoiceModeId, kUnisonId }, false);
+        allocation->onPaint = [this] (juce::Graphics& g) { paintAllocation (g); };
+
+        splits = &panel ("Keyboard splits");
+        for (int part = 0; part < kNumParts; ++part)
+        {
+            auto& row = splitRows[(size_t) part];
+            row.low = &control (*splits, partKeyLowId (part), {}, ControlStyle::Bar, false);
+            row.high = &control (*splits, partKeyHighId (part), {}, ControlStyle::Bar, false);
+            row.range = &display<KeyRangeDisplay> (*splits, state, part);
+        }
+        splits->onPaint = [this] (juce::Graphics& g) { paintSplits (g); };
         shownOwners.fill (0xfe);
+    }
+
+    juce::Rectangle<int> MultiPage::cardBounds (int voice) const
+    {
+        auto c = cards->content().withTrimmedTop (kCardTop - 20);
+        const int w = c.getWidth() / kNumVoices;
+        return { c.getX() + w * voice + 5, c.getY(), w - 10, kCardHeight };
     }
 
     void MultiPage::resized()
     {
         auto area = getLocalBounds().reduced (kMargin);
-        parts->setBounds (area.removeFromTop (kPartTableTop + kNumParts * kPartRowHeight + 14));
-        for (int i = 0; i < kNumParts; ++i)
+        cards->setBounds (area.removeFromTop (kCardHeight + 76));
+        for (int v = 0; v < kNumVoices; ++v)
         {
-            auto& row = rows[(size_t) i];
-            const int y = kPartTableTop + i * kPartRowHeight;
-            row.channel->setBounds (kColumnChannel, y + 9, 100, 26);
-            row.low->setBounds (kColumnLow, y + 8, 150, 28);
-            row.high->setBounds (kColumnHigh, y + 8, 150, 28);
-            row.range->setBounds (kColumnRange, y + 8, 246, 28);
-            row.pan->setBounds (kColumnPan, y + 8, 140, 28);
-            row.edit->setBounds (parts->getWidth() - 96, y + 9, 80, 26);
+            auto card = cardBounds (v).reduced (12, 0);
+            owners[(size_t) v]->setBounds (card.getX(), card.getY() + 104, card.getWidth(), 44);
+            editButtons[(size_t) v]->setBounds (card.getX(), card.getY() + kCardHeight - 46, card.getWidth(), 28);
         }
-
-        area.removeFromTop (16);
-        auto bottom = area.removeFromTop (178);
-        voices->setBounds (bottom.removeFromLeft (760));
-        {
-            auto c = voices->content().withTrimmedTop (8);
-            const int w = c.getWidth() / kNumVoices;
-            for (auto* owner : owners)
-                owner->setBounds (c.removeFromLeft (w).reduced (8, 0).withHeight (44));
-        }
+        area.removeFromTop (12);
+        auto bottom = area;
+        allocation->setBounds (bottom.removeFromLeft (420));
+        auto c = allocation->content();
+        auto controlsArea = c.removeFromTop (104);
+        voiceMode->setBounds (controlsArea.removeFromLeft (190).removeFromTop (46));
+        controlsArea.removeFromLeft (40);
+        unison->setBounds (controlsArea.removeFromLeft (100));
         bottom.removeFromLeft (16);
-        distribution->setBounds (bottom);
+        splits->setBounds (bottom);
+        for (int part = 0; part < kNumParts; ++part)
         {
-            auto c = distribution->content();
-            auto controlsArea = c.removeFromLeft (130);
-            distributionMode->setBounds (controlsArea.removeFromTop (46));
-            partsPerNote->setBounds (controlsArea.removeFromTop (92));
+            auto& row = splitRows[(size_t) part];
+            const int y = kSplitTop + part * kSplitRowHeight;
+            row.low->setBounds (kSplitLow, y + 9, 156, 28);
+            row.high->setBounds (kSplitHigh, y + 9, 156, 28);
+            row.range->setBounds (kSplitRange, y + 9, splits->getWidth() - kSplitRange - 16, 28);
         }
     }
 
-    void MultiPage::paintParts (juce::Graphics& g)
+    void MultiPage::paintCards (juce::Graphics& g)
     {
-        g.setFont (juce::Font (juce::FontOptions (11.5f)));
-        g.setColour (Palette::dimText);
-        const std::pair<const char*, int> headings[] = { { "MIDI channel", kColumnChannel },
-                                                         { "Lowest key", kColumnLow },
-                                                         { "Highest key", kColumnHigh },
-                                                         { "Key range", kColumnRange },
-                                                         { "Pan", kColumnPan },
-                                                         { "Voices", kColumnVoices } };
-        for (const auto& [text, x] : headings)
-            g.drawText (text, x, kPartTableTop - 22, 150, 18, juce::Justification::centredLeft);
-
-        int voicesPerPart[kNumParts] = {};
-        for (auto owner : shownOwners)
-            if (owner < kNumParts)
-                ++voicesPerPart[owner];
-
-        for (int i = 0; i < kNumParts; ++i)
-        {
-            const int y = kPartTableTop + i * kPartRowHeight;
-            const bool active = voicesPerPart[i] > 0;
-            if (i % 2 == 0)
-            {
-                g.setColour (Palette::panelRaised.withAlpha (0.5f));
-                g.fillRoundedRectangle (8.0f, (float) y, (float) parts->getWidth() - 16.0f, (float) kPartRowHeight, 4.0f);
-            }
-            g.setColour (Palette::part (i).withAlpha (active ? 1.0f : 0.3f));
-            g.fillRoundedRectangle (18.0f, (float) y + 15.0f, 14.0f, 14.0f, 3.0f);
-            g.setColour (active ? Palette::text : Palette::faintText);
-            g.setFont (juce::Font (juce::FontOptions (14.0f, juce::Font::bold)));
-            g.drawText ("Part " + n (i + 1), 42, y, 80, kPartRowHeight, juce::Justification::centredLeft);
-            g.setFont (juce::Font (juce::FontOptions (12.5f)));
-            g.setColour (active ? Palette::part (i) : Palette::faintText);
-            g.drawText (active ? n (voicesPerPart[i]) + (voicesPerPart[i] == 1 ? " voice" : " voices") : "silent",
-                        kColumnVoices, y, 90, kPartRowHeight, juce::Justification::centredLeft);
-        }
-    }
-
-    void MultiPage::paintVoices (juce::Graphics& g)
-    {
-        const auto c = voices->content().withTrimmedTop (8);
-        const int w = c.getWidth() / kNumVoices;
         for (int v = 0; v < kNumVoices; ++v)
         {
             const auto owner = shownOwners[(size_t) v];
-            const auto colour = owner < kNumParts ? Palette::part (owner) : Palette::faintText;
-            auto card = juce::Rectangle<float> ((float) c.getX() + (float) (w * v) + 4.0f, (float) c.getY() - 4.0f,
-                                                      (float) w - 8.0f, 104.0f);
+            const bool assigned = owner < kNumParts;
+            const auto colour = assigned ? Palette::part (owner) : Palette::faintText;
+            auto card = cardBounds (v).toFloat();
             g.setColour (Palette::panelRaised.withAlpha (0.6f));
-            g.fillRoundedRectangle (card, 6.0f);
-            g.setColour (colour.withAlpha (0.6f));
-            g.fillRoundedRectangle (card.removeFromBottom (4.0f), 2.0f);
+            g.fillRoundedRectangle (card, 8.0f);
+            g.setColour (colour.withAlpha (assigned ? 0.8f : 0.3f));
+            g.fillRoundedRectangle (card.removeFromTop (5.0f), 2.0f);
 
-            const float level = shownLevels[(size_t) v] / 255.0f;
-            const auto led = juce::Rectangle<float> (14.0f, 14.0f).withCentre ({ card.getCentreX(), card.getY() + 74.0f });
+            // Voice number and activity LED.
+            g.setColour (Palette::text);
+            g.setFont (juce::Font (juce::FontOptions (15.0f, juce::Font::bold)));
+            g.drawText ("Voice " + juce::String (v + 1),
+                        juce::Rectangle<float> (card.getX() + 12.0f, card.getY() + 10.0f, 100.0f, 22.0f),
+                        juce::Justification::centredLeft);
+            const auto led = juce::Rectangle<float> (14.0f, 14.0f).withCentre ({ card.getRight() - 20.0f, card.getY() + 21.0f });
             g.setColour (Palette::track);
             g.fillEllipse (led);
-            g.setColour (colour.withAlpha (juce::jlimit (0.0f, 1.0f, level * 1.5f)));
+            g.setColour (colour.withAlpha (juce::jlimit (0.0f, 1.0f, shownLevels[(size_t) v] / 255.0f * 1.5f)));
             g.fillEllipse (led);
             g.setColour (colour.withAlpha (0.5f));
             g.drawEllipse (led, 1.0f);
+
+            // The patch this card plays.
+            g.setColour (Palette::dimText);
+            g.setFont (juce::Font (juce::FontOptions (11.5f)));
+            g.drawText ("Patch", juce::Rectangle<float> (card.getX() + 12.0f, card.getY() + 42.0f, card.getWidth() - 24.0f, 16.0f),
+                        juce::Justification::centredLeft);
+            g.setColour (assigned ? colour : Palette::faintText);
+            g.setFont (juce::Font (juce::FontOptions (15.0f, juce::Font::bold)));
+            g.drawFittedText (assigned ? shownNames[owner] : juce::String ("off"),
+                              juce::Rectangle<float> (card.getX() + 12.0f, card.getY() + 58.0f, card.getWidth() - 24.0f, 36.0f)
+                                  .toNearestInt(),
+                              juce::Justification::topLeft, 2);
+        }
+        g.setColour (Palette::faintText);
+        g.setFont (juce::Font (juce::FontOptions (11.5f)));
+        g.drawText ("Choose the part (patch) each voice card plays. Cards on the same part share its patch; "
+                    "a card set to off is silent.",
+                    cards->content().withTrimmedTop (kCardHeight + kCardTop - 10).withHeight (22), juce::Justification::centred);
+    }
+
+    void MultiPage::paintAllocation (juce::Graphics& g)
+    {
+        const int mode = allocationReader->value (0);
+        const int voices = juce::jmax (1, allocationReader->value (1));
+        auto text = allocation->content().withTrimmedTop (112);
+        juce::String title, description;
+        switch (mode)
+        {
+            case 1:
+                title = "Cyclic";
+                description = "Notes step through the voice cards in order, 1, 2, 3 ... 6, whatever part each card "
+                              "plays, so successive notes can cycle through different patches.";
+                break;
+            case 2:
+                title = "Poly";
+                description = "Each note takes the free card that has rested longest; when all are busy the "
+                              "oldest note is stolen.";
+                break;
+            default:
+                title = "Per part";
+                description = "Every part plays every note on its own cards, using its Voicing (poly, mono, "
+                              "2x unison, cyclic) from the Synth page. Parts that own cards layer.";
+                break;
+        }
+        if (mode != 0)
+            description += voices > 1 ? " Unison " + juce::String (voices) + ": each note plays " + juce::String (voices)
+                                             + " cards at once (detuned by each part's Spread)."
+                                       : " Raise Unison to play 2-6 cards per note.";
+        else
+            description += " Unison applies to Cyclic and Poly.";
+        g.setColour (Palette::text);
+        g.setFont (juce::Font (juce::FontOptions (14.0f, juce::Font::bold)));
+        g.drawText (title, text.removeFromTop (22), juce::Justification::topLeft);
+        g.setColour (Palette::dimText);
+        g.setFont (juce::Font (juce::FontOptions (12.5f)));
+        g.drawFittedText (description, text.removeFromTop (140), juce::Justification::topLeft, 8);
+    }
+
+    void MultiPage::paintSplits (juce::Graphics& g)
+    {
+        g.setFont (juce::Font (juce::FontOptions (11.5f)));
+        g.setColour (Palette::dimText);
+        g.drawText ("Lowest key", kSplitLow, kSplitTop - 22, 150, 18, juce::Justification::centredLeft);
+        g.drawText ("Highest key", kSplitHigh, kSplitTop - 22, 150, 18, juce::Justification::centredLeft);
+        g.drawText ("Range", kSplitRange, kSplitTop - 22, 150, 18, juce::Justification::centredLeft);
+        for (int part = 0; part < kNumParts; ++part)
+        {
+            const int y = kSplitTop + part * kSplitRowHeight;
+            bool owns = false;
+            for (auto owner : shownOwners)
+                owns = owns || owner == part;
+            if (part % 2 == 0)
+            {
+                g.setColour (Palette::panelRaised.withAlpha (0.5f));
+                g.fillRoundedRectangle (8.0f, (float) y, (float) splits->getWidth() - 16.0f, (float) kSplitRowHeight, 4.0f);
+            }
+            g.setColour (Palette::part (part).withAlpha (owns ? 1.0f : 0.3f));
+            g.fillRoundedRectangle (16.0f, (float) y + 16.0f, 12.0f, 12.0f, 3.0f);
+            g.setColour (owns ? Palette::text : Palette::faintText);
+            g.setFont (juce::Font (juce::FontOptions (13.0f, juce::Font::bold)));
+            g.drawText ("Part " + juce::String (part + 1), 36, y + 4, 100, 18, juce::Justification::centredLeft);
+            g.setColour (owns ? Palette::part (part) : Palette::faintText);
+            g.setFont (juce::Font (juce::FontOptions (11.0f)));
+            g.drawText (owns ? shownNames[(size_t) part] : juce::String ("no voice cards"), 36, y + 22, 108, 16,
+                        juce::Justification::centredLeft, true);
         }
         g.setColour (Palette::faintText);
         g.setFont (juce::Font (juce::FontOptions (11.0f)));
-        g.drawText ("Each voice card belongs to one part. A part with no voices is silent.", c.getX(),
-                    voices->getHeight() - 26, c.getWidth(), 16, juce::Justification::centred);
-    }
-
-    void MultiPage::paintDistribution (juce::Graphics& g)
-    {
-        const bool roundRobin = distributionReader->value (0) == 1;
-        const int stack = juce::jmax (1, distributionReader->value (1));
-        auto text = distribution->content().withTrimmedLeft (146);
-        g.setColour (Palette::text);
-        g.setFont (juce::Font (juce::FontOptions (13.0f, juce::Font::bold)));
-        g.drawText (roundRobin ? "Round robin" : "Layer / split", text.removeFromTop (20), juce::Justification::topLeft);
-        g.setColour (Palette::dimText);
-        g.setFont (juce::Font (juce::FontOptions (12.0f)));
-        const juce::String description = roundRobin
-            ? "Each note goes to the next part in turn"
-                  + juce::String (stack > 1 ? " - " + juce::String (stack) + " parts per note" : juce::String())
-                  + ". Give each part one voice and its own patch to cycle through six sounds; "
-                    "parts per note stacks 2, 3... of them on every key."
-            : "Every part whose MIDI channel and key range match a note plays it. Put several "
-              "parts on one channel to layer them, or give them different key ranges to split "
-              "the keyboard.";
-        g.drawFittedText (description, text.removeFromTop (90), juce::Justification::topLeft, 6);
+        g.drawText ("A part only plays notes inside its range, in every voice mode. "
+                    "A low key above the high key plays outside the range.",
+                    16, splits->getHeight() - 26, splits->getWidth() - 32, 16, juce::Justification::centredLeft);
     }
 
     void MultiPage::poll()
     {
         Page::poll();
-        if (distributionReader->poll())
-        {
-            partsPerNote->setEnabled (distributionReader->value (0) == 1);
-            distribution->repaint();
-        }
-        bool levelsChanged = false, ownersChanged = false;
+        bool changed = false;
         for (int v = 0; v < kNumVoices; ++v)
         {
             const auto level = processor.voiceLevel (v);
             const auto owner = processor.voiceOwner (v);
-            levelsChanged |= level != shownLevels[(size_t) v];
-            ownersChanged |= owner != shownOwners[(size_t) v];
+            changed |= level != shownLevels[(size_t) v] || owner != shownOwners[(size_t) v];
             shownLevels[(size_t) v] = level;
             shownOwners[(size_t) v] = owner;
         }
-        if (levelsChanged || ownersChanged)
-            voices->repaint();
-        if (ownersChanged)
-            parts->repaint();
+        for (int part = 0; part < kNumParts; ++part)
+        {
+            auto name = processor.presets().presetName (part);
+            if (processor.presets().isModified (part))
+                name += " *";
+            changed |= name != shownNames[(size_t) part];
+            shownNames[(size_t) part] = name;
+        }
+        if (changed)
+        {
+            cards->repaint();
+            splits->repaint();
+        }
+        if (allocationReader->poll())
+        {
+            unison->setEnabled (allocationReader->value (0) != 0);
+            allocation->repaint();
+        }
+    }
+
+    //==============================================================================
+    namespace
+    {
+        // User preferences (not per project): ~/Library/Application Support/eureka.
+        std::unique_ptr<juce::PropertiesFile> openSettings()
+        {
+            juce::PropertiesFile::Options options;
+            options.applicationName = "eureka";
+            options.folderName = "eureka";
+            options.filenameSuffix = ".settings";
+            options.osxLibrarySubFolder = "Application Support";
+            return std::make_unique<juce::PropertiesFile> (options);
+        }
+
+        Palette::Theme loadThemePreference()
+        {
+            return openSettings()->getValue ("theme", "dark") == "light" ? Palette::Theme::Light : Palette::Theme::Dark;
+        }
+
+        void saveThemePreference (Palette::Theme theme)
+        {
+            auto settings = openSettings();
+            settings->setValue ("theme", theme == Palette::Theme::Light ? "light" : "dark");
+            settings->saveIfNeeded();
+        }
+
+        // Header button: a moon in dark mode, a sun in light mode.
+        class ThemeToggle final : public juce::Button
+        {
+        public:
+            ThemeToggle() : juce::Button ("theme")
+            {
+                setTooltip ("Switch between dark and light mode");
+            }
+
+            void paintButton (juce::Graphics& g, bool over, bool) override
+            {
+                auto area = getLocalBounds().toFloat().reduced (1.0f);
+                g.setColour (over ? Palette::panelRaised.brighter (0.06f) : Palette::panelRaised);
+                g.fillRoundedRectangle (area, 5.0f);
+                g.setColour (Palette::outline);
+                g.drawRoundedRectangle (area, 5.0f, 1.0f);
+                const auto centre = area.getCentre();
+                g.setColour (Palette::text);
+                if (Palette::theme() == Palette::Theme::Dark)
+                {
+                    // Moon: a disc with an offset disc cut out.
+                    juce::Path moon;
+                    moon.addEllipse (juce::Rectangle<float> (14.0f, 14.0f).withCentre (centre));
+                    juce::Path cut;
+                    cut.addEllipse (juce::Rectangle<float> (12.0f, 12.0f).withCentre (centre.translated (4.5f, -3.5f)));
+                    moon.setUsingNonZeroWinding (false);
+                    moon.addPath (cut);
+                    g.reduceClipRegion (moon);
+                    g.fillEllipse (juce::Rectangle<float> (14.0f, 14.0f).withCentre (centre));
+                }
+                else
+                {
+                    g.fillEllipse (juce::Rectangle<float> (8.0f, 8.0f).withCentre (centre));
+                    for (int i = 0; i < 8; ++i)
+                    {
+                        const float angle = juce::MathConstants<float>::twoPi * (float) i / 8.0f;
+                        g.drawLine ({ centre.getPointOnCircumference (6.5f, angle),
+                                      centre.getPointOnCircumference (9.0f, angle) }, 1.5f);
+                    }
+                }
+            }
+        };
     }
 
     //==============================================================================
@@ -555,7 +670,8 @@ namespace ambika_plugin
     class AmbikaAudioProcessorEditor::Content final : public juce::Component
     {
     public:
-        Content (AmbikaAudioProcessor& p, std::function<void (int)> showPageFn, std::function<void (int)> editPartFn)
+        Content (AmbikaAudioProcessor& p, std::function<void (int)> showPageFn, std::function<void (int)> editPartFn,
+                 std::function<void()> toggleThemeFn)
             : processor (p),
               presetContext { p.presets(), [&p] { return p.editedPart(); },
                               [this] (const juce::String& text, bool isError) { showToast (text, isError); },
@@ -591,11 +707,14 @@ namespace ambika_plugin
             addChildComponent (multi);
             addChildComponent (browser);
             addAndMakeVisible (output);
+            themeToggle.onClick = std::move (toggleThemeFn);
+            addAndMakeVisible (themeToggle);
             addAndMakeVisible (bar);
             addChildComponent (dialog);
         }
 
         void showSaveDialog() { dialog.openForSave(); }
+        int page() const { return currentPage; }
 
         void showToast (const juce::String& text, bool isError)
         {
@@ -700,7 +819,9 @@ namespace ambika_plugin
                 header.removeFromLeft (6);
             }
             auto right = header;
-            output.setBounds (right.removeFromRight (150));
+            themeToggle.setBounds (right.removeFromRight (32));
+            right.removeFromRight (12);
+            output.setBounds (right.removeFromRight (120));
             right.removeFromRight (44);
             voiceLedsArea = right.removeFromRight (108);
             right.removeFromRight (62);
@@ -779,6 +900,7 @@ namespace ambika_plugin
         ModulationPage modulation;
         MultiPage multi;
         ParameterControl output;
+        ThemeToggle themeToggle;
         juce::Rectangle<int> voiceLedsArea;
         std::array<uint8_t, kNumVoices> shownLevels {};
     };
@@ -790,14 +912,10 @@ namespace ambika_plugin
         // Skin images are read when the window opens (never during a host's
         // plug-in scan), so edits show up the next time the window opens.
         setCurrentSkin (Skin::load());
+        Palette::setTheme (loadThemePreference());
+        lookAndFeel.applyTheme();
         setLookAndFeel (&lookAndFeel);
-        content = std::make_unique<Content> (
-            p, [this] (int page) { showPage (page); }, [this] (int part) { editPart (part); });
-        content->setSize (designWidth, designHeight);
-        addAndMakeVisible (*content);
-
-        editPart (audioProcessor.editedPart());
-        showPage (0);
+        buildContent (0);
 
         setResizable (true, true);
         setResizeLimits (designWidth * 6 / 10, designHeight * 6 / 10, designWidth * 2, designHeight * 2);
@@ -815,6 +933,8 @@ namespace ambika_plugin
 
     void AmbikaAudioProcessorEditor::resized()
     {
+        if (content == nullptr || getWidth() <= 0)
+            return;  // Not sized yet (constructor).
         const float scale = (float) getWidth() / (float) designWidth;
         content->setTransform (juce::AffineTransform::scale (scale));
     }
@@ -831,6 +951,35 @@ namespace ambika_plugin
         content->setEditedPart (part);
         content->sendLookAndFeelChange();
         content->repaint();
+    }
+
+    void AmbikaAudioProcessorEditor::buildContent (int page)
+    {
+        if (content != nullptr)
+            removeChildComponent (content.get());
+        content = std::make_unique<Content> (
+            audioProcessor, [this] (int index) { showPage (index); }, [this] (int part) { editPart (part); },
+            [this]
+            {
+                // Rebuild after the click has finished (the button lives in content).
+                juce::Component::SafePointer<AmbikaAudioProcessorEditor> safe (this);
+                juce::MessageManager::callAsync ([safe] { if (safe != nullptr) safe->toggleTheme(); });
+            });
+        content->setSize (designWidth, designHeight);
+        addAndMakeVisible (*content);
+        editPart (audioProcessor.editedPart());
+        showPage (page);
+        resized();
+    }
+
+    void AmbikaAudioProcessorEditor::toggleTheme()
+    {
+        const auto theme = Palette::theme() == Palette::Theme::Dark ? Palette::Theme::Light : Palette::Theme::Dark;
+        Palette::setTheme (theme);
+        saveThemePreference (theme);
+        lookAndFeel.applyTheme();
+        // Controls take their colours when they are built, so build them again.
+        buildContent (content->page());
     }
 
     void AmbikaAudioProcessorEditor::showSaveDialog()

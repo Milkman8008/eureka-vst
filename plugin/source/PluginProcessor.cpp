@@ -24,16 +24,14 @@ namespace ambika_plugin
             for (int i = 0; i < count; ++i)
                 raw.push_back (state.getRawParameterValue (partParameterId (part, ambika::plugin::GetParameter (i))));
             appliedValues[(size_t) part].assign ((size_t) count, INT_MIN);
-
-            rawMapping[(size_t) part] = { state.getRawParameterValue (partChannelId (part)),
-                                          state.getRawParameterValue (partKeyLowId (part)),
-                                          state.getRawParameterValue (partKeyHighId (part)) };
+            rawKeyRange[(size_t) part] = { state.getRawParameterValue (partKeyLowId (part)),
+                                           state.getRawParameterValue (partKeyHighId (part)) };
         }
         for (int voice = 0; voice < kNumVoices; ++voice)
             rawVoiceParts[(size_t) voice] = state.getRawParameterValue (voicePartId (voice));
         outputGain = state.getRawParameterValue (kOutputGainId);
-        distribution = state.getRawParameterValue (kDistributionId);
-        partsPerNote = state.getRawParameterValue (kPartsPerNoteId);
+        voiceMode = state.getRawParameterValue (kVoiceModeId);
+        unison = state.getRawParameterValue (kUnisonId);
 
         // Engine needs a rate before the host calls prepareToPlay (some hosts
         // query state or open the editor first).
@@ -54,10 +52,10 @@ namespace ambika_plugin
         // Engine::Init restores the defaults; push every parameter again.
         for (auto& values : appliedValues)
             std::fill (values.begin(), values.end(), INT_MIN);
-        for (auto& mapping : appliedMapping)
-            mapping.fill (INT_MIN);
         appliedVoiceParts.fill (INT_MIN);
-        appliedDistribution = appliedPartsPerNote = -1;
+        appliedVoiceMode = appliedUnison = -1;
+        for (auto& range : appliedKeyRange)
+            range.fill (INT_MIN);
         applyParameters();
         setLatencySamples (engine->latency_samples());
 
@@ -86,13 +84,13 @@ namespace ambika_plugin
         if (assignmentChanged)
             engine->SetVoiceAssignment (voiceParts);
 
-        const int mode = juce::roundToInt (distribution->load (std::memory_order_relaxed));
-        const int stack = juce::roundToInt (partsPerNote->load (std::memory_order_relaxed));
-        if (mode != appliedDistribution || stack != appliedPartsPerNote)
+        const int mode = juce::roundToInt (voiceMode->load (std::memory_order_relaxed));
+        const int voices = juce::roundToInt (unison->load (std::memory_order_relaxed));
+        if (mode != appliedVoiceMode || voices != appliedUnison)
         {
-            appliedDistribution = mode;
-            appliedPartsPerNote = stack;
-            engine->SetNoteDistribution ((uint8_t) mode, (uint8_t) stack);
+            appliedVoiceMode = mode;
+            appliedUnison = voices;
+            engine->SetVoiceMode ((uint8_t) mode, (uint8_t) voices);
         }
 
         for (int part = 0; part < kNumParts; ++part)
@@ -124,19 +122,18 @@ namespace ambika_plugin
             if (settingsChanged)
                 enginePart.SetSettings (settings);
 
-            auto& mappingApplied = appliedMapping[(size_t) part];
-            std::array<int, 3> mappingValues {};
-            for (size_t m = 0; m < 3; ++m)
-                mappingValues[m] = juce::roundToInt (rawMapping[(size_t) part][m]->load (std::memory_order_relaxed));
-            if (mappingValues != mappingApplied)
+            // Keyboard split (every part listens on all MIDI channels).
+            const std::array<int, 2> range { juce::roundToInt (rawKeyRange[(size_t) part][0]->load (std::memory_order_relaxed)),
+                                             juce::roundToInt (rawKeyRange[(size_t) part][1]->load (std::memory_order_relaxed)) };
+            if (range != appliedKeyRange[(size_t) part])
             {
-                mappingApplied = mappingValues;
+                appliedKeyRange[(size_t) part] = range;
                 ambika::plugin::PartMapping mapping;
-                mapping.midi_channel = (uint8_t) mappingValues[0];
-                mapping.keyrange_low = (uint8_t) mappingValues[1];
-                mapping.keyrange_high = (uint8_t) mappingValues[2];
+                mapping.keyrange_low = (uint8_t) range[0];
+                mapping.keyrange_high = (uint8_t) range[1];
                 engine->SetPartMapping ((uint8_t) part, mapping);
             }
+
         }
     }
 

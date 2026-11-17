@@ -72,6 +72,14 @@ class Part {
   void Aftertouch(uint8_t velocity);
   void AllSoundOff();
   void AllNotesOff();
+
+  // Engine-level voice allocation (cyclic / poly across parts): the engine
+  // picks the voicecard (global index 0..5, owned by this part) and the part
+  // plays it with its patch, tuning and spread. unison_index offsets the
+  // pitch by unison_index * spread, as the hardware's unison does.
+  void PlayVoice(uint8_t voice, uint8_t note, uint8_t velocity, uint8_t unison_index);
+  void ReleaseVoice(uint8_t voice);
+  void VoiceAftertouch(uint8_t voice, uint8_t value);
   void ResetAllControllers();
 
   // Editing. Patch addresses are byte offsets into struct Patch.

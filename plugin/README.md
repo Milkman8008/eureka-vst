@@ -63,17 +63,36 @@ state-variable filter model and a VCA at 2x oversampling. The six voices are
 mixed and resampled to the host rate with a windowed-sinc filter. Cutoff
 tracks at 2 CV steps per semitone, matching the firmware's note tracking.
 
-## Multi-part mode
+## Parts and voice cards
 
-Like the hardware, the plug-in has six parts. Each part has its own patch, a
-MIDI channel (or all channels), a key range, and the voices it owns; each of
-the six voices belongs to at most one part. Set this up on the **Multi** page
-(the quick layouts split the voices 1/2/3/6 ways and give each part its own
-channel), and pick the part to edit with the coloured **Edit part** buttons.
+There are six parts, each with its own patch (and preset), and six voice
+cards. On the **Multi** page each card chooses the part it plays; cards on
+the same part share its patch, a card set to off is silent. Every part
+receives every MIDI channel. Choose the part to edit with the coloured
+**Edit part** buttons at the top, or a card's **Edit part** button.
 
-By default part 1 owns all six voices on all channels, which is how earlier
-builds behaved. Part 1 keeps its original parameter IDs, so projects saved
-with earlier builds load unchanged; parts 2-6 use IDs prefixed `p2_` ... `p6_`.
+By default all six cards play part 1, which is how earlier builds behaved.
+Part 1 keeps its original parameter IDs, so projects saved with earlier
+builds load unchanged; parts 2-6 use IDs prefixed `p2_` ... `p6_`.
+
+**Keyboard splits** (Multi page) give each part a lowest and highest key; a
+part only plays notes inside its range, in every voice mode (a low key above
+the high key plays outside the range). In Cyclic and Poly, a note only goes
+to cards whose part covers it.
+
+**Voice mode** decides which cards play a note:
+
+- **Per part** (as on the hardware): every part plays every note on its own
+  cards, using its Voicing on the Synth page (poly, mono, 2x unison, cyclic).
+  Parts that own cards layer.
+- **Cyclic**: notes step through cards 1, 2 ... 6 in order, whatever part each
+  card plays, so successive notes can cycle through different patches.
+- **Poly**: each note takes the free card that has rested longest, stealing
+  the oldest note when all six are busy.
+
+**Unison** (Cyclic and Poly) plays 1-6 cards per note: with 2, notes take
+cards 1+2, then 3+4, then 5+6; with 3, cards 1-3 then 4-6. Unison voices are
+detuned by each part's Spread. The sustain pedal holds notes in all modes.
 
 ## Filters
 
@@ -94,27 +113,21 @@ the Ambika SVF.
 
 The Surge libraries are submodules in `plugin/third_party`, pinned to the
 commits Surge XT uses: `sst-filters`, `sst-basic-blocks` and `simde` (SSE on
-Apple Silicon). They require C++20, which the whole plug-in now builds with.
+Apple Silicon). They require C++20, which the whole plug-in builds with.
 
-## Pan and note distribution
+## Pan
 
-Each part has a **Pan** control (Voice panel, and the Pan column on the Multi
-page). The modulation matrix has an extra destination, **pan**, so any source
-can move a voice in the stereo field: LFOs for auto-pan, velocity, note
-number for keyboard spread, random for a per-note scatter. Panning is per
-voice; the output is stereo.
+Each part has a **Pan** control (Voice panel on the Synth page). The
+modulation matrix has an extra destination, **pan**, so any source can move a
+voice in the stereo field: LFOs for auto-pan, velocity, note number for
+keyboard spread, random for a per-note scatter. Panning is per voice; the
+output is stereo.
 
-The Multi page's **Note distribution** decides how notes reach the parts:
+## Light and dark mode
 
-- **Layer / split** (as on the hardware): every part whose MIDI channel and
-  key range match the note plays it. Same channel = layered, different key
-  ranges = split.
-- **Round robin**: each new note goes to the next part in turn. Give each
-  voice card to its own part (Voice cards row) with a different patch on each
-  part, and successive notes cycle through the six sounds. **Parts per note**
-  stacks several parts on each key: with 2, notes play parts 1+2, then 3+4,
-  then 5+6; with 3, parts 1-3 then 4-6. Parts without voices, or whose channel
-  or key range does not match, are skipped.
+The sun/moon button at the right of the header switches between dark and
+light mode. The choice is a user preference (not saved in projects), stored
+in `~/Library/Application Support/eureka/eureka.settings`.
 
 ## Skins
 
@@ -162,8 +175,9 @@ their defaults. Each part's preset name is saved with the host project.
 
 - Arpeggiator and step sequencer (the Seq. 1/2 and Arp modulation sources stay
   at 0), ragas/microtuning, CC-to-parameter mapping and NRPN.
-- Only one filter model (the SVF card); the two 4-pole cards are not modelled.
-- The output is a mono mix copied to both channels; no per-voice outputs.
+- The two 4-pole Ambika filter cards are not modelled (the Ambika SVF and the
+  Surge filters are available instead).
+- One stereo output; no separate outputs per part or voice.
 
 ## License
 

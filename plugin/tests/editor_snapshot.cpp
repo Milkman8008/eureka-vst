@@ -215,24 +215,31 @@ int main (int argc, char** argv)
     // part 2, notes on both channels.
     for (int v = 0; v < 6; ++v)
         setParameter (processor, ambika_plugin::voicePartId (v), v < 3 ? 1.0f : 2.0f);
-    setParameter (processor, ambika_plugin::partChannelId (0), 1.0f);
-    setParameter (processor, ambika_plugin::partChannelId (1), 2.0f);
-    setParameter (processor, ambika_plugin::partKeyLowId (1), 48.0f);
+    setParameter (processor, ambika_plugin::kVoiceModeId, 1.0f);  // cyclic
+    setParameter (processor, ambika_plugin::kUnisonId, 2.0f);
     setParameter (processor, "p2_osc1_shape", 21.0f);  // male
     setParameter (processor, "p2_filter_mode", 1.0f);
     setParameter (processor, "p2_filter_resonance", 50.0f);
     setParameter (processor, "p2_env1_attack", 60.0f);
     juce::MidiBuffer twoParts;
     twoParts.addEvent (juce::MidiMessage::noteOn (1, 48, (juce::uint8) 100), 0);
-    twoParts.addEvent (juce::MidiMessage::noteOn (2, 60, (juce::uint8) 100), 0);
-    twoParts.addEvent (juce::MidiMessage::noteOn (2, 64, (juce::uint8) 100), 0);
+    twoParts.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
     render (processor, twoParts);
 
+    setParameter (processor, ambika_plugin::partKeyLowId (1), 60.0f);  // Part 2 from C3 up.
     editor->editPart (1);
     editor->showPage (0);
     snapshot (*editor, base, "synth-part2");
     editor->showPage (2);
     snapshot (*editor, base, "multi-2parts");
+
+    // Light mode (toggled back afterwards: the toggle saves the preference).
+    editor->toggleTheme();
+    editor->showPage (0);
+    snapshot (*editor, base, "light-synth");
+    editor->showPage (2);
+    snapshot (*editor, base, "light-multi");
+    editor->toggleTheme();
 
     // Presets: a few saved sounds, part 2 modified after loading.
     auto& presets = processor.presets();

@@ -12,7 +12,6 @@ namespace ambika_plugin
         return partParameterId (part, juce::String (info.id));
     }
 
-    juce::String partChannelId (int part) { return "multi_part" + juce::String (part + 1) + "_channel"; }
     juce::String partKeyLowId (int part) { return "multi_part" + juce::String (part + 1) + "_key_low"; }
     juce::String partKeyHighId (int part) { return "multi_part" + juce::String (part + 1) + "_key_high"; }
     juce::String voicePartId (int voice) { return "multi_voice" + juce::String (voice + 1) + "_part"; }
@@ -71,26 +70,9 @@ namespace ambika_plugin
             layout.add (std::move (partGroup));
         }
 
-        // Multi: MIDI channel and key range per part, and the part each voice
-        // belongs to. Defaults reproduce single-part behaviour: part 1 on all
-        // channels with all six voices.
+        // Multi: the part each voice card plays (default: all on part 1, the
+        // single-part behaviour) and how notes are given to the cards.
         auto multi = std::make_unique<juce::AudioProcessorParameterGroup> ("multi", "Multi", "|");
-        juce::StringArray channels { "all" };
-        for (int c = 1; c <= 16; ++c)
-            channels.add (juce::String (c));
-        const auto noteAttributes = juce::AudioParameterIntAttributes()
-                                        .withStringFromValueFunction ([] (int v, int) { return noteName (v); });
-        for (int part = 0; part < kNumParts; ++part)
-        {
-            const auto name = "Part " + juce::String (part + 1) + " ";
-            multi->addChild (std::make_unique<juce::AudioParameterChoice> (
-                juce::ParameterID { partChannelId (part), 1 }, name + "MIDI Channel", channels,
-                part == 0 ? 0 : part + 1));
-            multi->addChild (std::make_unique<juce::AudioParameterInt> (
-                juce::ParameterID { partKeyLowId (part), 1 }, name + "Key Low", 0, 127, 0, noteAttributes));
-            multi->addChild (std::make_unique<juce::AudioParameterInt> (
-                juce::ParameterID { partKeyHighId (part), 1 }, name + "Key High", 0, 127, 127, noteAttributes));
-        }
         juce::StringArray owners { "off" };
         for (int part = 1; part <= kNumParts; ++part)
             owners.add ("part " + juce::String (part));
@@ -98,13 +80,28 @@ namespace ambika_plugin
             multi->addChild (std::make_unique<juce::AudioParameterChoice> (
                 juce::ParameterID { voicePartId (voice), 1 }, "Voice " + juce::String (voice + 1) + " Part",
                 owners, 1));
-        // Note distribution (plug-in extension): layer/split as on the
-        // hardware, or round robin through the parts.
+        const auto noteAttributes = juce::AudioParameterIntAttributes()
+                                        .withStringFromValueFunction ([] (int v, int) { return noteName (v); })
+                                        .withValueFromStringFunction ([] (const juce::String& text)
+                                        {
+                                            for (int n = 0; n < 128; ++n)
+                                                if (noteName (n).equalsIgnoreCase (text.trim()))
+                                                    return n;
+                                            return text.getIntValue();
+                                        });
+        for (int part = 0; part < kNumParts; ++part)
+        {
+            const auto name = "Part " + juce::String (part + 1) + " ";
+            multi->addChild (std::make_unique<juce::AudioParameterInt> (
+                juce::ParameterID { partKeyLowId (part), 1 }, name + "Key Low", 0, 127, 0, noteAttributes));
+            multi->addChild (std::make_unique<juce::AudioParameterInt> (
+                juce::ParameterID { partKeyHighId (part), 1 }, name + "Key High", 0, 127, 127, noteAttributes));
+        }
         multi->addChild (std::make_unique<juce::AudioParameterChoice> (
-            juce::ParameterID { kDistributionId, 1 }, "Note Distribution",
-            juce::StringArray { "layer / split", "round robin" }, 0));
+            juce::ParameterID { kVoiceModeId, 1 }, "Voice Mode",
+            juce::StringArray { "per part", "cyclic", "poly" }, 0));
         multi->addChild (std::make_unique<juce::AudioParameterInt> (
-            juce::ParameterID { kPartsPerNoteId, 1 }, "Parts Per Note", 1, kNumParts, 1));
+            juce::ParameterID { kUnisonId, 1 }, "Unison", 1, kNumVoices, 1));
         layout.add (std::move (multi));
 
         layout.add (std::make_unique<juce::AudioParameterFloat> (

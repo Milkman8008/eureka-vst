@@ -66,14 +66,14 @@ namespace ambika_plugin
         // Engine parameters per part, in engine table order.
         std::array<std::vector<std::atomic<float>*>, kNumParts> rawParameters;
         std::array<std::vector<int>, kNumParts> appliedValues;
-        std::array<std::array<std::atomic<float>*, 3>, kNumParts> rawMapping {};
-        std::array<std::array<int, 3>, kNumParts> appliedMapping {};
         std::array<std::atomic<float>*, kNumVoices> rawVoiceParts {};
         std::array<int, kNumVoices> appliedVoiceParts {};
         std::atomic<float>* outputGain = nullptr;
-        std::atomic<float>* distribution = nullptr;
-        std::atomic<float>* partsPerNote = nullptr;
-        int appliedDistribution = -1, appliedPartsPerNote = -1;
+        std::array<std::array<std::atomic<float>*, 2>, kNumParts> rawKeyRange {};
+        std::array<std::array<int, 2>, kNumParts> appliedKeyRange {};
+        std::atomic<float>* voiceMode = nullptr;
+        std::atomic<float>* unison = nullptr;
+        int appliedVoiceMode = -1, appliedUnison = -1;
         juce::SmoothedValue<float> gainSmoothed;
 
         std::vector<float> left, right;

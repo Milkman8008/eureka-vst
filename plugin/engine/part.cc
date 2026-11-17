@@ -294,6 +294,20 @@ void Part::AllNotesOff() {
   }
 }
 
+void Part::PlayVoice(uint8_t voice, uint8_t note, uint8_t velocity, uint8_t unison_index) {
+  const uint16_t tuned_note = TuneNote(note) + unison_index * settings_.spread;
+  voices_[voice].Trigger(tuned_note, velocity << 1, 0);
+  RetriggerLfos();
+}
+
+void Part::ReleaseVoice(uint8_t voice) {
+  voices_[voice].Release();
+}
+
+void Part::VoiceAftertouch(uint8_t voice, uint8_t value) {
+  voices_[voice].set_modulation_source(MOD_SRC_AFTERTOUCH, value);
+}
+
 void Part::ResetAllControllers() {
   ignore_note_off_messages_ = 0;
   memset(controller_values_, 0, sizeof(controller_values_));

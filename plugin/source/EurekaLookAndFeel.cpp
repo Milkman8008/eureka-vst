@@ -4,20 +4,69 @@
 
 namespace ambika_plugin
 {
-    juce::Colour Palette::part (int index)
+    namespace Palette
     {
-        static const juce::Colour colours[] = {
-            juce::Colour (0xfff0a33a),  // amber
-            juce::Colour (0xff3cc8b4),  // teal
-            juce::Colour (0xfff0647a),  // coral
-            juce::Colour (0xffa6d84a),  // lime
-            juce::Colour (0xff5aa8f0),  // sky
-            juce::Colour (0xffb08cf5),  // violet
-        };
-        const auto i = (size_t) juce::jlimit (0, 5, index);
-        if (const auto& custom = currentSkin().settings.partColours)
-            return (*custom)[i];
-        return colours[i];
+        juce::Colour background, panel, panelRaised, outline, track, text, dimText, faintText;
+
+        namespace
+        {
+            Theme currentTheme = Theme::Dark;
+
+            struct Initialiser
+            {
+                Initialiser() { setTheme (Theme::Dark); }
+            } initialiser;
+        }
+
+        void setTheme (Theme newTheme)
+        {
+            currentTheme = newTheme;
+            if (newTheme == Theme::Dark)
+            {
+                background = juce::Colour (0xff121419);
+                panel = juce::Colour (0xff1b1e25);
+                panelRaised = juce::Colour (0xff232731);
+                outline = juce::Colour (0xff2e3440);
+                track = juce::Colour (0xff343b48);
+                text = juce::Colour (0xffdde1e8);
+                dimText = juce::Colour (0xff858e9e);
+                faintText = juce::Colour (0xff5b6372);
+            }
+            else
+            {
+                background = juce::Colour (0xffe9ecf1);
+                panel = juce::Colour (0xfff8f9fb);
+                panelRaised = juce::Colour (0xffeef1f5);
+                outline = juce::Colour (0xffcfd5de);
+                track = juce::Colour (0xffd9dee6);
+                text = juce::Colour (0xff1c2028);
+                dimText = juce::Colour (0xff5d6676);
+                faintText = juce::Colour (0xff98a0ad);
+            }
+        }
+
+        Theme theme() { return currentTheme; }
+
+        juce::Colour part (int index)
+        {
+            static const juce::Colour dark[] = {
+                juce::Colour (0xfff0a33a),  // amber
+                juce::Colour (0xff3cc8b4),  // teal
+                juce::Colour (0xfff0647a),  // coral
+                juce::Colour (0xffa6d84a),  // lime
+                juce::Colour (0xff5aa8f0),  // sky
+                juce::Colour (0xffb08cf5),  // violet
+            };
+            // Deeper versions, readable on a light background.
+            static const juce::Colour light[] = {
+                juce::Colour (0xffd8860f), juce::Colour (0xff169a88), juce::Colour (0xffd8435d),
+                juce::Colour (0xff5f9417), juce::Colour (0xff2a78cc), juce::Colour (0xff8458d6),
+            };
+            const auto i = (size_t) juce::jlimit (0, 5, index);
+            if (const auto& custom = currentSkin().settings.partColours)
+                return (*custom)[i];
+            return currentTheme == Theme::Dark ? dark[i] : light[i];
+        }
     }
 
     bool isBipolar (const juce::Slider& slider)
@@ -26,6 +75,11 @@ namespace ambika_plugin
     }
 
     EurekaLookAndFeel::EurekaLookAndFeel()
+    {
+        applyTheme();
+    }
+
+    void EurekaLookAndFeel::applyTheme()
     {
         setColourScheme ({ Palette::background, Palette::panel, Palette::panelRaised, Palette::dimText,
                            Palette::text, Palette::part (0), Palette::background, Palette::part (0),
