@@ -1,6 +1,18 @@
 [submodule "avrlib"]
 	path = avrlib
-	url = git://github.com/pichenettes/avril.git
+	url = https://github.com/pichenettes/avril.git
 [submodule "tools"]
 	path = tools
-	url = git://github.com/pichenettes/avril-firmware_tools.git
+	url = https://github.com/pichenettes/avril-firmware_tools.git
+[submodule "plugin/third_party/JUCE"]
+	path = plugin/third_party/JUCE
+	url = https://github.com/juce-framework/JUCE.git
+[submodule "plugin/third_party/sst-filters"]
+	path = plugin/third_party/sst-filters
+	url = https://github.com/surge-synthesizer/sst-filters.git
+[submodule "plugin/third_party/sst-basic-blocks"]
+	path = plugin/third_party/sst-basic-blocks
+	url = https://github.com/surge-synthesizer/sst-basic-blocks.git
+[submodule "plugin/third_party/simde"]
+	path = plugin/third_party/simde
+	url = https://github.com/simd-everywhere/simde.git
