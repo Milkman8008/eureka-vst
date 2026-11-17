@@ -73,7 +73,6 @@ namespace ambika_plugin
         juce::StringArray shownTags;
         bool shownModified = false;
         int shownPart = -1;
-        bool initArmed = false;
     };
 
     // Browser page: search, tag filter, list and details.

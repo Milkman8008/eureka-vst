@@ -54,6 +54,9 @@ namespace ambika_plugin
         juce::Result save (int part, const juce::String& name, const juce::StringArray& tags,
                            const juce::String& author, const juce::String& comment, bool overwrite);
         void initialise (int part);
+        // All six parts, plus the voice routing (card assignment, voice mode,
+        // unison, keyboard splits) back to the defaults.
+        void initialiseAll();
 
         juce::Result rename (const juce::File& file, const juce::String& newName);
         juce::Result remove (const juce::File& file);

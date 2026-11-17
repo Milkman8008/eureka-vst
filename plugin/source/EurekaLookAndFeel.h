@@ -24,6 +24,13 @@ namespace ambika_plugin
         juce::Colour part (int index);
     }
 
+    // The UI typeface (Bageo, compiled in), as FontOptions for every text.
+    juce::Typeface::Ptr eurekaTypeface();
+    juce::FontOptions eurekaFont (float height, int styleFlags = juce::Font::plain);
+
+    // The eureka! logo (compiled in); inverted for the light theme.
+    juce::Image eurekaLogo();
+
     class EurekaLookAndFeel final : public juce::LookAndFeel_V4
     {
     public:
@@ -48,6 +55,9 @@ namespace ambika_plugin
                                    bool isMouseOverButton, bool isButtonDown) override;
         void drawButtonText (juce::Graphics&, juce::TextButton&, bool isMouseOverButton, bool isButtonDown) override;
         juce::Font getTextButtonFont (juce::TextButton&, int buttonHeight) override;
+        juce::Font getPopupMenuFont() override;
+        juce::Font getLabelFont (juce::Label&) override;
+        juce::Typeface::Ptr getTypefaceForFont (const juce::Font&) override;
 
     private:
         juce::Colour accentColour;

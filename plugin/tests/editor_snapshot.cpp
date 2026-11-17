@@ -93,14 +93,14 @@ namespace
         juce::Image logo (juce::Image::ARGB, 460, 104, true);
         {
             juce::Graphics g (logo);
-            g.setFont (juce::Font (juce::FontOptions (56.0f, juce::Font::bold)));
+            g.setFont (juce::Font (ambika_plugin::eurekaFont (56.0f, juce::Font::bold)));
             const int w = juce::GlyphArrangement::getStringWidthInt (g.getCurrentFont(), "eureka");
             g.setColour (Palette::text);
             g.drawText ("eureka", 8, 4, w + 8, 72, juce::Justification::centredLeft);
             g.setColour (Palette::part (0));
             g.drawText ("!", 10 + w, 4, 40, 72, juce::Justification::centredLeft);
             g.setColour (Palette::faintText);
-            g.setFont (juce::Font (juce::FontOptions (21.0f)));
+            g.setFont (juce::Font (ambika_plugin::eurekaFont (21.0f)));
             g.drawText ("after the Mutable Instruments Ambika", 10, 74, 440, 28, juce::Justification::centredLeft);
         }
         writePng (logo, dir.getChildFile ("logo.png"));

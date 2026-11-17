@@ -229,6 +229,30 @@ namespace ambika_plugin
         current[(size_t) part].snapshot = captureValues (part);
     }
 
+    void PresetManager::initialiseAll()
+    {
+        for (int part = 0; part < kNumParts; ++part)
+            initialise (part);
+
+        juce::StringArray routing { kVoiceModeId, kUnisonId };
+        for (int voice = 0; voice < kNumVoices; ++voice)
+            routing.add (voicePartId (voice));
+        for (int part = 0; part < kNumParts; ++part)
+        {
+            routing.add (partKeyLowId (part));
+            routing.add (partKeyHighId (part));
+        }
+        for (const auto& id : routing)
+        {
+            if (auto* parameter = state.getParameter (id))
+            {
+                parameter->beginChangeGesture();
+                parameter->setValueNotifyingHost (parameter->getDefaultValue());
+                parameter->endChangeGesture();
+            }
+        }
+    }
+
     juce::Result PresetManager::rename (const juce::File& file, const juce::String& newName)
     {
         if (newName.trim().isEmpty())

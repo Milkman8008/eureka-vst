@@ -140,7 +140,7 @@ namespace ambika_plugin
         voiceLfo->onPaint = [this] (juce::Graphics& g)
         {
             g.setColour (Palette::faintText);
-            g.setFont (juce::Font (juce::FontOptions (11.5f)));
+            g.setFont (juce::Font (eurekaFont (11.5f)));
             g.drawFittedText ("LFO 4 runs separately on every voice card, so each note gets its own "
                               "phase. Route it in the Mod page.",
                               voiceLfo->content().withHeight (120).reduced (2, 6), juce::Justification::topLeft, 6);
@@ -272,7 +272,7 @@ namespace ambika_plugin
                          std::initializer_list<std::pair<const char*, int>> columns)
         {
             g.setColour (Palette::dimText);
-            g.setFont (juce::Font (juce::FontOptions (11.5f)));
+            g.setFont (juce::Font (eurekaFont (11.5f)));
             int x = kTableLeft;
             for (const auto& [text, width] : columns)
             {
@@ -307,7 +307,7 @@ namespace ambika_plugin
         {
             paintTable (g, *matrix, ambika::kNumModulations, { { "Source", 180 }, { "Destination", 200 }, { "Amount", 250 } });
             g.setColour (Palette::faintText);
-            g.setFont (juce::Font (juce::FontOptions (11.0f)));
+            g.setFont (juce::Font (eurekaFont (11.0f)));
             g.drawText ("Slot 14 is scaled by the mod wheel, as on the hardware.", kTableLeft,
                         matrix->getHeight() - 26, 400, 16, juce::Justification::centredLeft);
         };
@@ -324,7 +324,7 @@ namespace ambika_plugin
         {
             paintTable (g, *modifiers, ambika::kNumModifiers, { { "Input 1", 135 }, { "Operator", 110 }, { "Input 2", 135 } });
             g.setColour (Palette::faintText);
-            g.setFont (juce::Font (juce::FontOptions (11.0f)));
+            g.setFont (juce::Font (eurekaFont (11.0f)));
             g.drawFittedText ("Each modifier combines two sources into a new one (mod. 1 to mod. 4), "
                               "usable in the matrix.\n\nSeq. 1/2 and arp sources stay at zero: the sequencer "
                               "and arpeggiator are not part of this version.",
@@ -459,7 +459,7 @@ namespace ambika_plugin
 
             // Voice number and activity LED.
             g.setColour (Palette::text);
-            g.setFont (juce::Font (juce::FontOptions (15.0f, juce::Font::bold)));
+            g.setFont (juce::Font (eurekaFont (15.0f, juce::Font::bold)));
             g.drawText ("Voice " + juce::String (v + 1),
                         juce::Rectangle<float> (card.getX() + 12.0f, card.getY() + 10.0f, 100.0f, 22.0f),
                         juce::Justification::centredLeft);
@@ -473,18 +473,18 @@ namespace ambika_plugin
 
             // The patch this card plays.
             g.setColour (Palette::dimText);
-            g.setFont (juce::Font (juce::FontOptions (11.5f)));
+            g.setFont (juce::Font (eurekaFont (11.5f)));
             g.drawText ("Patch", juce::Rectangle<float> (card.getX() + 12.0f, card.getY() + 42.0f, card.getWidth() - 24.0f, 16.0f),
                         juce::Justification::centredLeft);
             g.setColour (assigned ? colour : Palette::faintText);
-            g.setFont (juce::Font (juce::FontOptions (15.0f, juce::Font::bold)));
+            g.setFont (juce::Font (eurekaFont (15.0f, juce::Font::bold)));
             g.drawFittedText (assigned ? shownNames[owner] : juce::String ("off"),
                               juce::Rectangle<float> (card.getX() + 12.0f, card.getY() + 58.0f, card.getWidth() - 24.0f, 36.0f)
                                   .toNearestInt(),
                               juce::Justification::topLeft, 2);
         }
         g.setColour (Palette::faintText);
-        g.setFont (juce::Font (juce::FontOptions (11.5f)));
+        g.setFont (juce::Font (eurekaFont (11.5f)));
         g.drawText ("Choose the part (patch) each voice card plays. Cards on the same part share its patch; "
                     "a card set to off is silent.",
                     cards->content().withTrimmedTop (kCardHeight + kCardTop - 10).withHeight (22), juce::Justification::centred);
@@ -521,16 +521,16 @@ namespace ambika_plugin
         else
             description += " Unison applies to Cyclic and Poly.";
         g.setColour (Palette::text);
-        g.setFont (juce::Font (juce::FontOptions (14.0f, juce::Font::bold)));
+        g.setFont (juce::Font (eurekaFont (14.0f, juce::Font::bold)));
         g.drawText (title, text.removeFromTop (22), juce::Justification::topLeft);
         g.setColour (Palette::dimText);
-        g.setFont (juce::Font (juce::FontOptions (12.5f)));
+        g.setFont (juce::Font (eurekaFont (12.5f)));
         g.drawFittedText (description, text.removeFromTop (140), juce::Justification::topLeft, 8);
     }
 
     void MultiPage::paintSplits (juce::Graphics& g)
     {
-        g.setFont (juce::Font (juce::FontOptions (11.5f)));
+        g.setFont (juce::Font (eurekaFont (11.5f)));
         g.setColour (Palette::dimText);
         g.drawText ("Lowest key", kSplitLow, kSplitTop - 22, 150, 18, juce::Justification::centredLeft);
         g.drawText ("Highest key", kSplitHigh, kSplitTop - 22, 150, 18, juce::Justification::centredLeft);
@@ -549,15 +549,15 @@ namespace ambika_plugin
             g.setColour (Palette::part (part).withAlpha (owns ? 1.0f : 0.3f));
             g.fillRoundedRectangle (16.0f, (float) y + 16.0f, 12.0f, 12.0f, 3.0f);
             g.setColour (owns ? Palette::text : Palette::faintText);
-            g.setFont (juce::Font (juce::FontOptions (13.0f, juce::Font::bold)));
+            g.setFont (juce::Font (eurekaFont (13.0f, juce::Font::bold)));
             g.drawText ("Part " + juce::String (part + 1), 36, y + 4, 100, 18, juce::Justification::centredLeft);
             g.setColour (owns ? Palette::part (part) : Palette::faintText);
-            g.setFont (juce::Font (juce::FontOptions (11.0f)));
+            g.setFont (juce::Font (eurekaFont (11.0f)));
             g.drawText (owns ? shownNames[(size_t) part] : juce::String ("no voice cards"), 36, y + 22, 108, 16,
                         juce::Justification::centredLeft, true);
         }
         g.setColour (Palette::faintText);
-        g.setFont (juce::Font (juce::FontOptions (11.0f)));
+        g.setFont (juce::Font (eurekaFont (11.0f)));
         g.drawText ("A part only plays notes inside its range, in every voice mode. "
                     "A low key above the high key plays outside the range.",
                     16, splits->getHeight() - 26, splits->getWidth() - 32, 16, juce::Justification::centredLeft);
@@ -748,7 +748,7 @@ namespace ambika_plugin
             g.setColour (toastIsError ? juce::Colour (0xfff0647a) : accentOf (*this));
             g.drawRoundedRectangle (area.reduced (0.5f), 8.0f, 1.0f);
             g.setColour (Palette::text);
-            g.setFont (juce::Font (juce::FontOptions (13.0f)));
+            g.setFont (juce::Font (eurekaFont (13.0f)));
             g.drawFittedText (toastText, area.toNearestInt().reduced (14, 0), juce::Justification::centred, 1);
         }
 
@@ -773,20 +773,33 @@ namespace ambika_plugin
             }
             else
             {
+                // Logo icon, then the wordmark.
+                const auto icon = juce::Rectangle<float> (12.0f, 7.0f, 50.0f, 50.0f);
+                {
+                    juce::Graphics::ScopedSaveState save (g);
+                    juce::Path clip;
+                    clip.addRoundedRectangle (icon, 8.0f);
+                    g.reduceClipRegion (clip);
+                    g.drawImage (eurekaLogo(), icon, juce::RectanglePlacement::centred | juce::RectanglePlacement::fillDestination);
+                }
+                g.setColour (Palette::outline);
+                g.drawRoundedRectangle (icon, 8.0f, 1.0f);
+
+                const int x = 72;
                 g.setColour (Palette::text);
-                g.setFont (juce::Font (juce::FontOptions (28.0f, juce::Font::bold)));
+                g.setFont (juce::Font (eurekaFont (28.0f, juce::Font::bold)));
                 const auto wordmark = juce::String ("eureka");
                 const int wordWidth = juce::GlyphArrangement::getStringWidthInt (g.getCurrentFont(), wordmark);
-                g.drawText (wordmark, 20, 6, wordWidth + 4, 34, juce::Justification::centredLeft);
+                g.drawText (wordmark, x, 6, wordWidth + 4, 34, juce::Justification::centredLeft);
                 g.setColour (accentOf (*this));
-                g.drawText ("!", 20 + wordWidth + 1, 6, 20, 34, juce::Justification::centredLeft);
+                g.drawText ("!", x + wordWidth + 1, 6, 20, 34, juce::Justification::centredLeft);
                 g.setColour (Palette::faintText);
-                g.setFont (juce::Font (juce::FontOptions (10.5f)));
-                g.drawText ("after the Mutable Instruments Ambika", 21, 38, 220, 16, juce::Justification::centredLeft);
+                g.setFont (juce::Font (eurekaFont (10.0f)));
+                g.drawText ("after the Mutable Instruments Ambika", x + 1, 38, 190, 16, juce::Justification::centredLeft, true);
             }
 
             g.setColour (Palette::dimText);
-            g.setFont (juce::Font (juce::FontOptions (11.0f)));
+            g.setFont (juce::Font (eurekaFont (11.0f)));
             g.drawText ("EDIT PART", partButtons[0].getX() - 76, 0, 68, kHeaderHeight, juce::Justification::centredRight);
             g.drawText ("VOICES", voiceLedsArea.getX() - 54, 0, 46, kHeaderHeight, juce::Justification::centredRight);
             g.drawText ("OUT", output.getX() - 36, 0, 28, kHeaderHeight, juce::Justification::centredRight);
@@ -812,10 +825,10 @@ namespace ambika_plugin
         void resized() override
         {
             auto header = getLocalBounds().removeFromTop (kHeaderHeight).reduced (16, 16);
-            header.removeFromLeft (230);
+            header.removeFromLeft (258);
             for (auto& b : pageButtons)
             {
-                b.setBounds (header.removeFromLeft (76));
+                b.setBounds (header.removeFromLeft (70));
                 header.removeFromLeft (6);
             }
             auto right = header;

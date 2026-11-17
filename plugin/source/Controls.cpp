@@ -44,7 +44,7 @@ namespace ambika_plugin
         label.setText (text, juce::dontSendNotification);
         label.setJustificationType (juce::Justification::centred);
         label.setColour (juce::Label::textColourId, Palette::dimText);
-        label.setFont (juce::Font (juce::FontOptions (11.5f)));
+        label.setFont (juce::Font (eurekaFont (11.5f)));
         label.setInterceptsMouseClicks (false, false);
         if (style != ControlStyle::Bar)
             addAndMakeVisible (label);
@@ -204,7 +204,7 @@ namespace ambika_plugin
         label.setText ("Variant", juce::dontSendNotification);
         label.setJustificationType (juce::Justification::centred);
         label.setColour (juce::Label::textColourId, Palette::dimText);
-        label.setFont (juce::Font (juce::FontOptions (11.5f)));
+        label.setFont (juce::Font (eurekaFont (11.5f)));
         addAndMakeVisible (label);
         addAndMakeVisible (combo);
         combo.onChange = [this]
@@ -330,7 +330,7 @@ namespace ambika_plugin
         g.strokePath (curve, juce::PathStrokeType (1.8f));
 
         g.setColour (Palette::dimText);
-        g.setFont (juce::Font (juce::FontOptions (11.0f)));
+        g.setFont (juce::Font (eurekaFont (11.0f)));
         g.drawText (formatHz (juce::jmin (20000.0, ambika::plugin::AnalogVoice::CutoffToHz (cv))) + " at C4",
                     area.reduced (4.0f, 2.0f), juce::Justification::topRight);
     }
@@ -392,7 +392,7 @@ namespace ambika_plugin
         g.strokePath (path, juce::PathStrokeType (1.8f, juce::PathStrokeType::curved));
 
         g.setColour (Palette::dimText);
-        g.setFont (juce::Font (juce::FontOptions (10.5f)));
+        g.setFont (juce::Font (eurekaFont (10.5f)));
         g.drawText ("A " + formatSeconds (attack) + "   D " + formatSeconds (decay) + "   R " + formatSeconds (release),
                     textArea, juce::Justification::centredLeft);
     }
@@ -433,7 +433,7 @@ namespace ambika_plugin
         else
             text = formatHz (ambika::plugin::LfoRateHz ((uint8_t) (canSync ? rate - ambika::kNumSyncedLfoRates : rate)));
         g.setColour (Palette::dimText);
-        g.setFont (juce::Font (juce::FontOptions (11.0f)));
+        g.setFont (juce::Font (eurekaFont (11.0f)));
         g.drawText (text, labelArea, juce::Justification::centredRight);
     }
 
@@ -487,7 +487,7 @@ namespace ambika_plugin
         g.setColour (findColour (juce::Slider::rotarySliderFillColourId));
         g.fillEllipse (12.0f, 11.0f, 6.0f, 6.0f);
         g.setColour (Palette::text);
-        g.setFont (juce::Font (juce::FontOptions (12.0f, juce::Font::bold)).withExtraKerningFactor (0.08f));
+        g.setFont (juce::Font (eurekaFont (12.0f, juce::Font::bold)).withExtraKerningFactor (0.08f));
         g.drawText (title.toUpperCase(), 24, 5, getWidth() - 34, 18, juce::Justification::centredLeft);
         if (onPaint)
             onPaint (g);

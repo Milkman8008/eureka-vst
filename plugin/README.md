@@ -123,6 +123,14 @@ voice in the stereo field: LFOs for auto-pan, velocity, note number for
 keyboard spread, random for a per-note scatter. Panning is per voice; the
 output is stereo.
 
+## Font and logo
+
+The UI uses the **Bageo** typeface (160 Studio) and the eureka! logo, both
+compiled in from `plugin/resources/` (`fonts/Bageo.ttf`,
+`images/eureka-logo.jpg`; the logo is inverted in light mode). Before
+distributing builds, check that the Bageo licence allows embedding it in
+software, and that the logo artwork may be used commercially.
+
 ## Light and dark mode
 
 The sun/moon button at the right of the header switches between dark and
@@ -161,7 +169,9 @@ been changed since it was loaded or saved.
 - **Save** writes over the current preset (or asks for a name if there is none).
 - **Save as...** names and tags a new preset (suggested tags plus your own),
   with optional author and comment. Saving over an existing name asks first.
-- **Init** (click twice) resets the edited part to the initial patch.
+- **Init** opens a menu: reset the edited part's sound, or **everything**:
+  all six parts plus the voice routing (voice cards back to part 1, voice
+  mode Per part, unison 1, full keyboard ranges).
 - **Browse** opens the browser: search, filter by tags, double-click to load,
   rename, delete (to the Trash), and open the presets folder.
 

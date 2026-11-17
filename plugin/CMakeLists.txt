@@ -235,6 +235,14 @@ if(AMBIKA_BUILD_PLUGIN)
 		message(STATUS "eureka!: built-in skin from plugin/skin (${AMBIKA_SKIN_FILES})")
 	endif()
 
+	# UI font (Bageo by 160 Studio). Check its licence allows embedding before
+	# distributing builds.
+	juce_add_binary_data(EurekaFonts HEADER_NAME EurekaFonts.h NAMESPACE EurekaFonts
+		SOURCES
+			"${CMAKE_CURRENT_SOURCE_DIR}/resources/fonts/Bageo.ttf"
+			"${CMAKE_CURRENT_SOURCE_DIR}/resources/images/eureka-logo.jpg")
+	target_link_libraries(AmbikaPlugin PRIVATE EurekaFonts)
+
 	target_sources(AmbikaPlugin PRIVATE
 		source/Controls.cpp
 		source/Controls.h
@@ -303,6 +311,7 @@ if(AMBIKA_BUILD_PLUGIN)
 			JUCE_WEB_BROWSER=0
 			JUCE_USE_CURL=0)
 		target_link_libraries(ambika_preset_test PRIVATE
+			EurekaFonts
 			ambika_engine
 			juce::juce_audio_utils
 			juce::juce_recommended_config_flags)
@@ -327,6 +336,7 @@ if(AMBIKA_BUILD_PLUGIN)
 			JUCE_WEB_BROWSER=0
 			JUCE_USE_CURL=0)
 		target_link_libraries(ambika_editor_snapshot PRIVATE
+			EurekaFonts
 			ambika_engine
 			juce::juce_audio_utils
 			juce::juce_recommended_config_flags)

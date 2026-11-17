@@ -16,13 +16,13 @@ namespace ambika_plugin
                          juce::Colour colour = Palette::dimText)
         {
             label.setText (text, juce::dontSendNotification);
-            label.setFont (juce::Font (juce::FontOptions (size)));
+            label.setFont (juce::Font (eurekaFont (size)));
             label.setColour (juce::Label::textColourId, colour);
         }
 
         void styleEditor (juce::TextEditor& editor, const juce::String& placeholder)
         {
-            editor.setFont (juce::Font (juce::FontOptions (14.0f)));
+            editor.setFont (juce::Font (eurekaFont (14.0f)));
             editor.setTextToShowWhenEmpty (placeholder, Palette::faintText);
             editor.setColour (juce::TextEditor::backgroundColourId, Palette::background);
             editor.setColour (juce::TextEditor::textColourId, Palette::text);
@@ -43,7 +43,7 @@ namespace ambika_plugin
                          int height = 26)
         {
             int x = area.getX(), y = area.getY();
-            juce::Font font (juce::FontOptions (13.0f, juce::Font::bold));
+            juce::Font font (eurekaFont (13.0f, juce::Font::bold));
             for (auto& chip : chips)
             {
                 const int w = juce::GlyphArrangement::getStringWidthInt (font, chip->getButtonText()) + 22;
@@ -73,7 +73,7 @@ namespace ambika_plugin
     {
         setWantsKeyboardFocus (true);
         styleLabel (title, "Save preset", 18.0f, Palette::text);
-        title.setFont (juce::Font (juce::FontOptions (18.0f, juce::Font::bold)));
+        title.setFont (juce::Font (eurekaFont (18.0f, juce::Font::bold)));
         styleLabel (nameLabel, "Name");
         styleLabel (tagsLabel, "Tags");
         styleLabel (extraTagsLabel, "Other tags");
@@ -288,7 +288,7 @@ namespace ambika_plugin
         browse.setTooltip ("Browse, load, rename and delete presets");
         save.setTooltip ("Save over the current preset (or name a new one)");
         saveAs.setTooltip ("Save as a new preset with a name and tags");
-        init.setTooltip ("Reset this part to the initial patch");
+        init.setTooltip ("Reset this part, or everything including the voice routing");
 
         previous.onClick = [this] { step (-1); };
         next.onClick = [this] { step (1); };
@@ -297,26 +297,30 @@ namespace ambika_plugin
         saveAs.onClick = [this] { dialog.openForSave(); };
         init.onClick = [this]
         {
-            // Two clicks: Init discards the part's current sound.
-            if (! initArmed)
-            {
-                initArmed = true;
-                init.setButtonText ("Sure?");
-                juce::Component::SafePointer<PresetBar> safe (this);
-                juce::Timer::callAfterDelay (2500, [safe]
-                {
-                    if (safe != nullptr && safe->initArmed)
-                    {
-                        safe->initArmed = false;
-                        safe->init.setButtonText ("Init");
-                    }
-                });
-                return;
-            }
-            initArmed = false;
-            init.setButtonText ("Init");
-            context.presets.initialise (context.editedPart());
-            context.notify ("Part " + juce::String (context.editedPart() + 1) + " initialised", false);
+            // Init the edited part, or everything including the voice routing.
+            const int part = context.editedPart();
+            juce::PopupMenu menu;
+            menu.addSectionHeader ("Initialise");
+            menu.addItem (1, "Part " + juce::String (part + 1) + " (this sound only)");
+            menu.addItem (2, "Everything: all parts, voice cards, voice mode, splits");
+            juce::Component::SafePointer<PresetBar> safe (this);
+            menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&init),
+                                [safe, part] (int choice)
+                                {
+                                    if (safe == nullptr || choice == 0)
+                                        return;
+                                    auto& ctx = safe->context;
+                                    if (choice == 1)
+                                    {
+                                        ctx.presets.initialise (part);
+                                        ctx.notify ("Part " + juce::String (part + 1) + " initialised", false);
+                                    }
+                                    else
+                                    {
+                                        ctx.presets.initialiseAll();
+                                        ctx.notify ("Everything initialised: all parts and the voice routing", false);
+                                    }
+                                });
         };
         for (auto* b : { &previous, &next, &browse, &save, &saveAs, &init })
             addAndMakeVisible (*b);
@@ -386,12 +390,12 @@ namespace ambika_plugin
         g.setColour (colour.withAlpha (0.18f));
         g.fillRoundedRectangle (chip, 4.0f);
         g.setColour (colour);
-        g.setFont (juce::Font (juce::FontOptions (11.5f, juce::Font::bold)));
+        g.setFont (juce::Font (eurekaFont (11.5f, juce::Font::bold)));
         g.drawText ("PART " + juce::String (shownPart + 1), chip, juce::Justification::centred);
 
         area.removeFromLeft (12);
         auto text = area.withRight (previous.getX() - 12);
-        g.setFont (juce::Font (juce::FontOptions (17.0f, juce::Font::bold)));
+        g.setFont (juce::Font (eurekaFont (17.0f, juce::Font::bold)));
         g.setColour (Palette::text);
         const auto label = shownName + (shownModified ? " *" : "");
         const int nameWidth = juce::jmin (text.getWidth(),
@@ -399,14 +403,14 @@ namespace ambika_plugin
         g.drawText (label, text.removeFromLeft (nameWidth), juce::Justification::centredLeft, true);
         if (shownModified)
         {
-            g.setFont (juce::Font (juce::FontOptions (11.0f)));
+            g.setFont (juce::Font (eurekaFont (11.0f)));
             g.setColour (Palette::dimText);
             g.drawText ("modified", text.removeFromLeft (64), juce::Justification::centredLeft);
         }
         if (! shownTags.isEmpty())
         {
             text.removeFromLeft (8);
-            g.setFont (juce::Font (juce::FontOptions (11.5f)));
+            g.setFont (juce::Font (eurekaFont (11.5f)));
             g.setColour (colour.withAlpha (0.8f));
             g.drawText (shownTags.joinIntoString ("  ·  "), text, juce::Justification::centredLeft, true);
         }
@@ -592,9 +596,9 @@ namespace ambika_plugin
         }
         area.removeFromLeft (14);
         g.setColour (Palette::text);
-        g.setFont (juce::Font (juce::FontOptions (14.0f, juce::Font::bold)));
+        g.setFont (juce::Font (eurekaFont (14.0f, juce::Font::bold)));
         g.drawText (preset.name, area.removeFromLeft (240), juce::Justification::centredLeft, true);
-        g.setFont (juce::Font (juce::FontOptions (11.5f)));
+        g.setFont (juce::Font (eurekaFont (11.5f)));
         g.setColour (Palette::dimText);
         g.drawText (preset.author, area.removeFromRight (110).withTrimmedRight (8), juce::Justification::centredRight, true);
         g.setColour (accentOf (*this).withAlpha (0.85f));
@@ -635,7 +639,7 @@ namespace ambika_plugin
             g.setColour (accent);
             g.fillEllipse ((float) r.getX() + 12.0f, (float) r.getY() + 11.0f, 6.0f, 6.0f);
             g.setColour (Palette::text);
-            g.setFont (juce::Font (juce::FontOptions (12.0f, juce::Font::bold)).withExtraKerningFactor (0.08f));
+            g.setFont (juce::Font (eurekaFont (12.0f, juce::Font::bold)).withExtraKerningFactor (0.08f));
             g.drawText (title.toUpperCase(), r.getX() + 24, r.getY() + 5, r.getWidth() - 30, 18,
                         juce::Justification::centredLeft);
         };
@@ -649,7 +653,7 @@ namespace ambika_plugin
                     accent);
         paintPanel (detail, "Preset", accent);
 
-        g.setFont (juce::Font (juce::FontOptions (11.5f)));
+        g.setFont (juce::Font (eurekaFont (11.5f)));
         g.setColour (Palette::dimText);
         g.drawText ("Tags (all selected must match)", side.getX() + 14, side.getY() + 72, side.getWidth() - 28, 16,
                     juce::Justification::centredLeft);
@@ -657,7 +661,7 @@ namespace ambika_plugin
         if (all.empty())
         {
             g.setColour (Palette::dimText);
-            g.setFont (juce::Font (juce::FontOptions (13.0f)));
+            g.setFont (juce::Font (eurekaFont (13.0f)));
             g.drawFittedText ("No presets yet.\n\nShape a sound on the Synth page, then press \"Save as...\" "
                               "in the bar above to name and tag it.\nPresets are stored in "
                               + context.presets.getDirectory().getFullPathName(),
@@ -668,9 +672,9 @@ namespace ambika_plugin
         if (auto* p = selected())
         {
             g.setColour (Palette::text);
-            g.setFont (juce::Font (juce::FontOptions (20.0f, juce::Font::bold)));
+            g.setFont (juce::Font (eurekaFont (20.0f, juce::Font::bold)));
             g.drawFittedText (p->name, d.removeFromTop (30), juce::Justification::centredLeft, 1);
-            g.setFont (juce::Font (juce::FontOptions (12.5f)));
+            g.setFont (juce::Font (eurekaFont (12.5f)));
             auto line = [&] (const juce::String& label, const juce::String& value)
             {
                 if (value.isEmpty())
@@ -696,7 +700,7 @@ namespace ambika_plugin
         else
         {
             g.setColour (Palette::faintText);
-            g.setFont (juce::Font (juce::FontOptions (12.5f)));
+            g.setFont (juce::Font (eurekaFont (12.5f)));
             g.drawFittedText ("Select a preset to see its details.\nDouble-click to load it into part "
                                   + juce::String (context.editedPart() + 1) + ".",
                               d.removeFromTop (60), juce::Justification::topLeft, 3);

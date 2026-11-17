@@ -1,6 +1,7 @@
 #include "EurekaLookAndFeel.h"
 
 #include "Skin.h"
+#include "EurekaFonts.h"
 
 namespace ambika_plugin
 {
@@ -67,6 +68,37 @@ namespace ambika_plugin
                 return (*custom)[i];
             return currentTheme == Theme::Dark ? dark[i] : light[i];
         }
+    }
+
+    juce::Typeface::Ptr eurekaTypeface()
+    {
+        static const auto typeface = juce::Typeface::createSystemTypefaceFor (
+            EurekaFonts::Bageo_ttf, (size_t) EurekaFonts::Bageo_ttfSize);
+        return typeface;
+    }
+
+    juce::FontOptions eurekaFont (float height, int styleFlags)
+    {
+        return juce::FontOptions (height, styleFlags).withTypeface (eurekaTypeface());
+    }
+
+    juce::Image eurekaLogo()
+    {
+        static const auto original = juce::ImageCache::getFromMemory (EurekaFonts::eurekalogo_jpg,
+                                                                      EurekaFonts::eurekalogo_jpgSize);
+        static const auto inverted = [&]
+        {
+            auto image = original.createCopy();
+            juce::Image::BitmapData pixels (image, juce::Image::BitmapData::readWrite);
+            for (int y = 0; y < image.getHeight(); ++y)
+                for (int x = 0; x < image.getWidth(); ++x)
+                {
+                    const auto c = pixels.getPixelColour (x, y);
+                    pixels.setPixelColour (x, y, juce::Colour (255 - c.getRed(), 255 - c.getGreen(), 255 - c.getBlue()));
+                }
+            return image;
+        }();
+        return Palette::theme() == Palette::Theme::Dark ? original : inverted;
     }
 
     bool isBipolar (const juce::Slider& slider)
@@ -228,7 +260,7 @@ namespace ambika_plugin
 
     juce::Font EurekaLookAndFeel::getComboBoxFont (juce::ComboBox&)
     {
-        return juce::Font (juce::FontOptions (13.0f));
+        return juce::Font (eurekaFont (13.0f));
     }
 
     void EurekaLookAndFeel::positionComboBoxText (juce::ComboBox& box, juce::Label& label)
@@ -240,7 +272,7 @@ namespace ambika_plugin
     juce::Label* EurekaLookAndFeel::createSliderTextBox (juce::Slider& slider)
     {
         auto* label = LookAndFeel_V4::createSliderTextBox (slider);
-        label->setFont (juce::Font (juce::FontOptions (12.0f)));
+        label->setFont (juce::Font (eurekaFont (12.0f)));
         label->setColour (juce::Label::textColourId, Palette::text);
         label->setColour (juce::Label::outlineColourId, juce::Colours::transparentBlack);
         label->setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
@@ -275,8 +307,22 @@ namespace ambika_plugin
                           juce::Justification::centred, 1);
     }
 
+    juce::Font EurekaLookAndFeel::getPopupMenuFont() { return juce::Font (eurekaFont (14.0f)); }
+    juce::Font EurekaLookAndFeel::getLabelFont (juce::Label& label)
+    {
+        return juce::Font (eurekaFont (label.getFont().getHeight()));
+    }
+
+    // Anything that still asks for the default sans-serif gets Bageo too.
+    juce::Typeface::Ptr EurekaLookAndFeel::getTypefaceForFont (const juce::Font& font)
+    {
+        if (font.getTypefaceName() == juce::Font::getDefaultSansSerifFontName())
+            return eurekaTypeface();
+        return LookAndFeel_V4::getTypefaceForFont (font);
+    }
+
     juce::Font EurekaLookAndFeel::getTextButtonFont (juce::TextButton&, int)
     {
-        return juce::Font (juce::FontOptions (13.0f, juce::Font::bold));
+        return juce::Font (eurekaFont (13.0f, juce::Font::bold));
     }
 }
