@@ -243,7 +243,15 @@ if(AMBIKA_BUILD_PLUGIN)
 			"${CMAKE_CURRENT_SOURCE_DIR}/resources/images/eureka-logo.jpg")
 	target_link_libraries(AmbikaPlugin PRIVATE EurekaFonts)
 
+	# The Ambika factory programs (controller/data/programs), compiled in.
+	file(GLOB AMBIKA_FACTORY_PROGRAMS CONFIGURE_DEPENDS "${AMBIKA_ROOT}/controller/data/programs/*.PRO")
+	juce_add_binary_data(EurekaFactory HEADER_NAME EurekaFactory.h NAMESPACE EurekaFactory
+		SOURCES ${AMBIKA_FACTORY_PROGRAMS})
+	target_link_libraries(AmbikaPlugin PRIVATE EurekaFactory)
+
 	target_sources(AmbikaPlugin PRIVATE
+		source/AmbikaImport.cpp
+		source/AmbikaImport.h
 		source/Controls.cpp
 		source/Controls.h
 		source/EurekaLookAndFeel.cpp
@@ -297,6 +305,7 @@ if(AMBIKA_BUILD_PLUGIN)
 		juce_add_console_app(ambika_preset_test PRODUCT_NAME "ambika_preset_test")
 		target_sources(ambika_preset_test PRIVATE
 			tests/preset_test.cpp
+			source/AmbikaImport.cpp
 			source/Controls.cpp
 			source/EurekaLookAndFeel.cpp
 			source/PluginEditor.cpp
@@ -307,11 +316,14 @@ if(AMBIKA_BUILD_PLUGIN)
 			source/Skin.cpp)
 		target_include_directories(ambika_preset_test PRIVATE source)
 		target_compile_definitions(ambika_preset_test PRIVATE
+			AMBIKA_PROGRAMS_DIR="${AMBIKA_ROOT}/controller/data/programs")
+		target_compile_definitions(ambika_preset_test PRIVATE
 			JucePlugin_Name="${AMBIKA_PLUGIN_NAME}"
 			JUCE_WEB_BROWSER=0
 			JUCE_USE_CURL=0)
 		target_link_libraries(ambika_preset_test PRIVATE
 			EurekaFonts
+			EurekaFactory
 			ambika_engine
 			juce::juce_audio_utils
 			juce::juce_recommended_config_flags)
@@ -321,6 +333,7 @@ if(AMBIKA_BUILD_PLUGIN)
 		juce_add_console_app(ambika_editor_snapshot PRODUCT_NAME "ambika_editor_snapshot")
 		target_sources(ambika_editor_snapshot PRIVATE
 			tests/editor_snapshot.cpp
+			source/AmbikaImport.cpp
 			source/Controls.cpp
 			source/EurekaLookAndFeel.cpp
 			source/PluginParameters.cpp
@@ -337,6 +350,7 @@ if(AMBIKA_BUILD_PLUGIN)
 			JUCE_USE_CURL=0)
 		target_link_libraries(ambika_editor_snapshot PRIVATE
 			EurekaFonts
+			EurekaFactory
 			ambika_engine
 			juce::juce_audio_utils
 			juce::juce_recommended_config_flags)

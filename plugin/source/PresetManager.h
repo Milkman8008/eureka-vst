@@ -5,6 +5,7 @@
 #include <array>
 #include <vector>
 
+#include "AmbikaImport.h"
 #include "PluginParameters.h"
 
 namespace ambika_plugin
@@ -25,6 +26,7 @@ namespace ambika_plugin
         juce::String author;
         juce::String comment;
         juce::Time modified;
+        bool factory = false;  // Built-in Ambika program: read only.
     };
 
     class PresetManager
@@ -45,12 +47,27 @@ namespace ambika_plugin
         // Deleted presets go to the Trash; tests turn that off.
         void setUseTrash (bool shouldUseTrash) { useTrash = shouldUseTrash; }
 
-        // All presets in the directory (and sub-folders), sorted by name.
+        // All presets: the user's (directory and sub-folders) and the 128
+        // factory programs of the Ambika, sorted by name.
         std::vector<PresetInfo> scan() const;
         static bool readInfo (const juce::File& file, PresetInfo& info);
 
+        // The Ambika factory programs (compiled in). Their files are virtual
+        // paths under /eureka-factory/ that only this class understands.
+        static const std::vector<PresetInfo>& factoryPresets();
+        static bool isFactory (const juce::File& file);
+        static bool isEurekaPreset (const juce::File& file);
+
         // Message thread only: these change host parameters.
+        // Loads a eureka! preset, a factory program, or an Ambika file
+        // (.PAT/.PRO/.syx into the part; a .MUL multi into all six parts with
+        // its key ranges and voice assignment).
         juce::Result load (int part, const juce::File& file);
+        juce::Result loadAmbika (int part, const ambika_format::Bundle& bundle, const juce::File& source);
+
+        // Converts Ambika files into eureka! presets in <directory>/Imported.
+        // Multis become one preset per part. Returns how many were written.
+        int importToLibrary (const juce::Array<juce::File>& files, juce::StringArray& errors);
         juce::Result save (int part, const juce::String& name, const juce::StringArray& tags,
                            const juce::String& author, const juce::String& comment, bool overwrite);
         void initialise (int part);
@@ -92,6 +109,10 @@ namespace ambika_plugin
         };
 
         std::vector<int> captureValues (int part) const;
+        juce::Result writePresetFile (const juce::File& file, const juce::String& name, const juce::StringArray& tags,
+                                      const juce::String& author, const juce::String& comment,
+                                      const std::vector<int>& values) const;
+        void setParameter (const juce::String& id, float denormalisedValue);
         void applyValues (int part, const std::vector<int>& values);
         static juce::String sanitiseFileName (const juce::String& name);
 

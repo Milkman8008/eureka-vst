@@ -106,7 +106,9 @@ namespace ambika_plugin
         std::vector<std::unique_ptr<juce::TextButton>> tagButtons;
         juce::ListBox list { "presets", this };
         juce::TextButton load { "Load" }, rename { "Rename" }, remove { "Delete" }, reveal { "Show folder" },
-            rescan { "Refresh" };
+            rescan { "Refresh" }, importButton { "Import Ambika files..." };
+        std::unique_ptr<juce::FileChooser> chooser;
+        void showImportMenu();
         bool deleteArmed = false;
     };
 }

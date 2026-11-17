@@ -114,7 +114,8 @@ namespace ambika_plugin
         const auto current = presets.presetName (part);
         name.setText (current == "Init" ? juce::String() : current, juce::dontSendNotification);
         juce::StringArray extra;
-        const auto tags = presets.presetTags (part);
+        auto tags = presets.presetTags (part);
+        tags.removeString ("Factory");  // A saved copy is the user's own.
         for (auto& chip : tagButtons)
             chip->setToggleState (tags.contains (chip->getButtonText(), true), juce::dontSendNotification);
         for (const auto& tag : tags)
@@ -474,9 +475,65 @@ namespace ambika_plugin
             dir.revealToUser();
         };
         rescan.onClick = [this] { refresh(); };
-        for (auto* b : { &load, &rename, &remove, &reveal, &rescan })
+        importButton.setTooltip ("Load or convert Ambika patches, programs, multis and SysEx dumps "
+                                 "(.PAT .PRO .MUL .syx)");
+        importButton.onClick = [this] { showImportMenu(); };
+        for (auto* b : { &load, &rename, &remove, &reveal, &rescan, &importButton })
             addAndMakeVisible (*b);
         load.setToggleState (true, juce::dontSendNotification);  // Accent fill.
+    }
+
+    void PresetBrowserPage::showImportMenu()
+    {
+        const int part = context.editedPart();
+        juce::PopupMenu menu;
+        menu.addSectionHeader ("Ambika files: .PAT .PRO .MUL .syx");
+        menu.addItem (1, "Load a file into part " + juce::String (part + 1) + "... (a .MUL loads all parts)");
+        menu.addItem (2, "Add files or folders to the library...");
+        juce::Component::SafePointer<PresetBrowserPage> safe (this);
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&importButton), [safe, part] (int choice)
+        {
+            if (safe == nullptr || choice == 0)
+                return;
+            auto* self = safe.getComponent();
+            if (choice == 1)
+            {
+                self->chooser = std::make_unique<juce::FileChooser> ("Load an Ambika file into part " + juce::String (part + 1),
+                                                                     juce::File(), ambika_format::kFilePatterns);
+                self->chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                                            [safe, part] (const juce::FileChooser& fc)
+                {
+                    if (safe == nullptr || fc.getResult() == juce::File())
+                        return;
+                    const auto result = safe->context.presets.load (part, fc.getResult());
+                    safe->context.notify (result.wasOk() ? "Loaded \"" + fc.getResult().getFileName() + "\""
+                                                         : result.getErrorMessage(),
+                                          result.failed());
+                    safe->list.repaint();
+                });
+            }
+            else
+            {
+                self->chooser = std::make_unique<juce::FileChooser> ("Add Ambika files to the eureka! library",
+                                                                     juce::File(), ambika_format::kFilePatterns);
+                self->chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles
+                                                | juce::FileBrowserComponent::canSelectDirectories
+                                                | juce::FileBrowserComponent::canSelectMultipleItems,
+                                            [safe] (const juce::FileChooser& fc)
+                {
+                    if (safe == nullptr || fc.getResults().isEmpty())
+                        return;
+                    juce::StringArray errors;
+                    const int added = safe->context.presets.importToLibrary (fc.getResults(), errors);
+                    juce::String message = "Added " + juce::String (added) + " preset" + (added == 1 ? "" : "s")
+                                           + " to Imported";
+                    if (! errors.isEmpty())
+                        message << " (" << errors.size() << " skipped: " << errors[0] << ")";
+                    safe->context.notify (message, added == 0);
+                    safe->refresh();
+                });
+            }
+        });
     }
 
     void PresetBrowserPage::visibilityChanged()
@@ -597,10 +654,10 @@ namespace ambika_plugin
         area.removeFromLeft (14);
         g.setColour (Palette::text);
         g.setFont (juce::Font (eurekaFont (14.0f, juce::Font::bold)));
-        g.drawText (preset.name, area.removeFromLeft (240), juce::Justification::centredLeft, true);
+        g.drawText (preset.name, area.removeFromLeft (220), juce::Justification::centredLeft, true);
         g.setFont (juce::Font (eurekaFont (11.5f)));
         g.setColour (Palette::dimText);
-        g.drawText (preset.author, area.removeFromRight (110).withTrimmedRight (8), juce::Justification::centredRight, true);
+        g.drawText (preset.author, area.removeFromRight (150).withTrimmedRight (8), juce::Justification::centredRight, true);
         g.setColour (accentOf (*this).withAlpha (0.85f));
         g.drawText (preset.tags.joinIntoString ("  ·  "), area, juce::Justification::centredLeft, true);
     }
@@ -610,9 +667,10 @@ namespace ambika_plugin
         deleteArmed = false;
         remove.setButtonText ("Delete");
         const bool any = selected() != nullptr;
+        const bool editable = any && ! selected()->factory;
         load.setEnabled (any);
-        rename.setEnabled (any);
-        remove.setEnabled (any);
+        rename.setEnabled (editable);
+        remove.setEnabled (editable);
         repaint();
     }
 
@@ -721,6 +779,9 @@ namespace ambika_plugin
         auto buttons = side.removeFromBottom (30);
         reveal.setBounds (buttons.removeFromLeft (buttons.getWidth() / 2 - 4));
         rescan.setBounds (buttons.removeFromRight (buttons.getWidth() - 4));
+        side.removeFromBottom (8);
+        importButton.setBounds (side.removeFromBottom (30));
+        side.removeFromBottom (8);
         layoutChips (tagButtons, side);
 
         list.setBounds (area.reduced (8).withTrimmedTop (26));

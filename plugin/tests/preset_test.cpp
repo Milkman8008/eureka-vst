@@ -90,9 +90,19 @@ int main()
     presets.initialise (1);
     set (processor, "p2_osc1_shape", 22.0f);
     result = presets.save (1, "Airy Pad", { "Pad" }, {}, {}, false);
+    std::vector<PresetInfo> mine;
     const auto all = presets.scan();
-    check (all.size() == 2 && all[0].name == "Airy Pad" && all[1].name == "Deep Bass", "scan lists presets sorted by name");
-    check (presets.neighbour (1, 1) == file && presets.neighbour (1, -1) == file, "next/previous cycle through presets");
+    for (const auto& info : all)
+        if (! info.factory)
+            mine.push_back (info);
+    check (mine.size() == 2 && mine[0].name == "Airy Pad" && mine[1].name == "Deep Bass",
+           "scan lists the user's presets sorted by name");
+    size_t index = 0;
+    while (index < all.size() && all[index].file != presets.presetFile (1))
+        ++index;
+    check (index < all.size() && presets.neighbour (1, 1) == all[(index + 1) % all.size()].file
+               && presets.neighbour (1, -1) == all[(index + all.size() - 1) % all.size()].file,
+           "next/previous step through the list (user and factory presets)");
 
     // Rename.
     result = presets.rename (file, "Sub Bass");
@@ -146,6 +156,134 @@ int main()
     result = presets.remove (renamed);
     check (result.wasOk() && ! renamed.existsAsFile() && presets.presetFile (0) == juce::File(),
            "delete removes the file and unlinks parts");
+
+    // ---- Ambika factory programs and file import ---------------------------
+    using namespace ambika_plugin::ambika_format;
+    const auto& factory = PresetManager::factoryPresets();
+    check (factory.size() == 128, "128 Ambika factory programs are built in (" + juce::String ((int) factory.size()) + ")");
+    check (factory[0].name == "junon" && factory[0].factory && factory[0].tags.contains ("Factory"),
+           "factory program 000 is \"junon\", tagged Factory");
+    int listed = 0;
+    for (const auto& info : presets.scan())
+        listed += info.factory ? 1 : 0;
+    check (listed == 128, "the browser lists the factory programs");
+
+    // Load a factory program into part 2 and compare with the raw file.
+    const juce::File programsDir (AMBIKA_PROGRAMS_DIR);
+    Bundle raw;
+    check (parseFile (programsDir.getChildFile ("005.PRO"), raw).wasOk(), "parse 005.PRO from the Ambika repository");
+    const auto* rawPatch = raw.find (kPatch, 0);
+    const auto* rawPart = raw.find (kPart, 0);
+    check (rawPatch != nullptr && rawPart != nullptr, ".PRO holds a patch and part settings");
+    result = presets.load (1, factory[5].file);
+    check (result.wasOk() && presets.presetName (1) == raw.name && ! presets.isModified (1),
+           "load factory program into part 2: " + presets.presetName (1));
+    bool matches = rawPatch != nullptr;
+    for (int i = 0; matches && i < ambika::plugin::NumParameters(); ++i)
+    {
+        const auto& info = ambika::plugin::GetParameter (i);
+        if (info.target != ambika::plugin::TARGET_PATCH || info.address >= 104)
+            continue;
+        int expected = info.min_value < 0 ? (int) (int8_t) rawPatch->data[info.address] : rawPatch->data[info.address];
+        expected = juce::jlimit<int> (info.min_value, info.max_value, expected);
+        matches = juce::roundToInt (get (processor, partParameterId (1, info)))
+                  == (info.choices ? expected - info.min_value : expected);
+        if (! matches)
+            std::printf ("      mismatch %s: param %.1f, byte %d -> expected %d\n", info.id,
+                         get (processor, partParameterId (1, info)), rawPatch->data[info.address], expected);
+    }
+    check (matches, "every patch parameter matches the program's bytes");
+    check (get (processor, "p2_filter_model") == 0.0f, "Ambika programs use the Ambika SVF");
+    check (presets.rename (factory[5].file, "x").failed() && presets.remove (factory[5].file).failed(),
+           "factory presets cannot be renamed or deleted");
+
+    // A .PRO file from disk.
+    result = presets.load (2, programsDir.getChildFile ("000.PRO"));
+    check (result.wasOk() && presets.presetName (2) == "junon" && presets.presetFile (2) == juce::File(),
+           "load a .PRO file into part 3 (not saved over)");
+
+    // The same patch as a SysEx dump.
+    auto sysex = [] (int command, int argument, const std::vector<uint8_t>& data)
+    {
+        juce::MemoryOutputStream out;
+        for (uint8_t b : { 0xf0, 0x00, 0x21, 0x02, 0x00, 0x04 }) out.writeByte ((char) b);
+        out.writeByte ((char) command);
+        out.writeByte ((char) argument);
+        uint8_t checksum = 0;
+        for (auto b : data)
+        {
+            checksum = (uint8_t) (checksum + b);
+            out.writeByte ((char) (b >> 4));
+            out.writeByte ((char) (b & 0x0f));
+        }
+        out.writeByte ((char) (checksum >> 4));
+        out.writeByte ((char) (checksum & 0x0f));
+        out.writeByte ((char) 0xf7);
+        return out.getMemoryBlock();
+    };
+    const auto syxFile = dir.getChildFile ("dump.syx");
+    syxFile.replaceWithData (sysex (1, 0, rawPatch->data).getData(), rawPatch->data.size() * 2 + 11);
+    result = presets.load (3, syxFile);
+    check (result.wasOk() && get (processor, "p4_osc1_shape") == get (processor, "p2_osc1_shape")
+               && get (processor, "p4_filter_cutoff") == get (processor, "p2_filter_cutoff"),
+           "load an Ambika SysEx patch dump");
+    auto corrupt = sysex (1, 0, rawPatch->data);
+    static_cast<uint8_t*> (corrupt.getData())[20] ^= 0x01;
+    syxFile.replaceWithData (corrupt.getData(), corrupt.getSize());
+    check (presets.load (3, syxFile).failed(), "a SysEx dump with a bad checksum is rejected");
+
+    // A multi (.MUL): part 1 = 000.PRO on voices 1,3,5 below C4; part 2 =
+    // 005.PRO on voices 2,4,6 from C4.
+    Bundle junon;
+    parseFile (programsDir.getChildFile ("000.PRO"), junon);
+    auto riffObject = [] (juce::MemoryOutputStream& out, int type, int alias, const std::vector<uint8_t>& data)
+    {
+        out.write ("obj ", 4);
+        out.writeInt ((int) data.size() + 4);
+        out.writeByte ((char) (type + 1));
+        out.writeByte ((char) alias);
+        out.writeShort (0);
+        out.write (data.data(), data.size());
+    };
+    juce::MemoryOutputStream body;
+    body.write ("MBKS", 4);
+    body.write ("name", 4);
+    body.writeInt (16);
+    body.write ("split test      ", 16);
+    std::vector<uint8_t> multi (kMultiSize, 0);
+    const uint8_t mapping[] = { 1, 0, 59, 0x15, 1, 60, 127, 0x2a };
+    std::copy (std::begin (mapping), std::end (mapping), multi.begin());
+    riffObject (body, kMulti, 0, multi);
+    riffObject (body, kPatch, 1, junon.find (kPatch, 0)->data);
+    riffObject (body, kPart, 1, junon.find (kPart, 0)->data);
+    riffObject (body, kPatch, 2, rawPatch->data);
+    riffObject (body, kPart, 2, rawPart->data);
+    juce::MemoryOutputStream mul;
+    mul.write ("RIFF", 4);
+    mul.writeInt ((int) body.getDataSize());
+    mul.write (body.getData(), body.getDataSize());
+    const auto mulFile = dir.getChildFile ("SPLIT.MUL");
+    mulFile.replaceWithData (mul.getData(), mul.getDataSize());
+    presets.initialiseAll();
+    result = presets.load (0, mulFile);
+    check (result.wasOk() && get (processor, voicePartId (0)) == 1.0f && get (processor, voicePartId (1)) == 2.0f
+               && get (processor, voicePartId (4)) == 1.0f && get (processor, voicePartId (5)) == 2.0f,
+           "a .MUL multi sets the voice cards (1,3,5 -> part 1; 2,4,6 -> part 2)");
+    check (get (processor, partKeyHighId (0)) == 59.0f && get (processor, partKeyLowId (1)) == 60.0f,
+           "a .MUL multi sets the keyboard splits");
+    check (get (processor, "p2_osc1_shape") == get (processor, "p4_osc1_shape") && presets.presetName (0) == "split test 1",
+           "a .MUL multi loads each part's patch");
+
+    // Library import: files and folders become eureka! presets.
+    juce::StringArray errors;
+    const int added = presets.importToLibrary ({ programsDir.getChildFile ("001.PRO"), mulFile }, errors);
+    check (added == 3 && errors.isEmpty(), "importing a .PRO and a 2-part .MUL adds 3 presets ("
+                                                + juce::String (added) + ")");
+    const auto imported = dir.getChildFile ("Imported").getChildFile ("moof!.eurekapreset");
+    const auto importedAlt = dir.getChildFile ("Imported").findChildFiles (juce::File::findFiles, false, "moof*");
+    check (! importedAlt.isEmpty() && presets.load (5, importedAlt[0]).wasOk(),
+           "an imported preset loads like any other");
+    juce::ignoreUnused (imported);
 
     dir.deleteRecursively();
     std::printf ("%s (%d failure%s)\n", failures ? "FAILED" : "OK", failures, failures == 1 ? "" : "s");

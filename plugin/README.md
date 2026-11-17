@@ -181,6 +181,22 @@ are included. They store
 values by parameter ID, so a preset missing newer parameters loads them at
 their defaults. Each part's preset name is saved with the host project.
 
+## Ambika presets
+
+The 128 factory programs of the Ambika (`controller/data/programs`) are built
+in and appear in the browser tagged **Factory** (read only: load one and
+**Save as...** to keep a changed copy).
+
+**Import Ambika files...** in the browser reads the Ambika's own formats:
+SD-card files (`.PAT` patch, `.PRO` program, `.MUL` multi) and SysEx dumps
+(`.syx`). It can either load one file into the edited part (a `.MUL` loads all
+six parts with their keyboard splits and voice assignment), or add files and
+whole folders to the library as eureka! presets in `presets/Imported`
+(multis become one preset per part). The patch maps one to one; from the part
+settings, volume, octave, tuning, spread, legato, portamento and voicing are
+used (chain mode becomes poly). Sequences, arpeggiator settings and ragas are
+ignored, as eureka! has no sequencer.
+
 ## Not in this version
 
 - Arpeggiator and step sequencer (the Seq. 1/2 and Arp modulation sources stay
