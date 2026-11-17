@@ -1,5 +1,7 @@
 #include "EurekaLookAndFeel.h"
 
+#include <array>
+
 #include "Skin.h"
 #include "EurekaFonts.h"
 
@@ -12,6 +14,7 @@ namespace ambika_plugin
         namespace
         {
             Theme currentTheme = Theme::Dark;
+            std::array<std::optional<juce::Colour>, 6> overrides;
 
             struct Initialiser
             {
@@ -24,29 +27,82 @@ namespace ambika_plugin
             currentTheme = newTheme;
             if (newTheme == Theme::Dark)
             {
-                background = juce::Colour (0xff121419);
-                panel = juce::Colour (0xff1b1e25);
-                panelRaised = juce::Colour (0xff232731);
-                outline = juce::Colour (0xff2e3440);
-                track = juce::Colour (0xff343b48);
-                text = juce::Colour (0xffdde1e8);
-                dimText = juce::Colour (0xff858e9e);
-                faintText = juce::Colour (0xff5b6372);
+                // Graphite and gunmetal, with cream lettering: the inverse of
+                // the light theme.
+                background = juce::Colour (0xff161618);
+                panel = juce::Colour (0xff222225);
+                panelRaised = juce::Colour (0xff3a3b3f);
+                outline = juce::Colour (0xff47484c);
+                track = juce::Colour (0xff36373b);
+                text = juce::Colour (0xfff3ead6);
+                dimText = juce::Colour (0xffb3a88f);
+                faintText = juce::Colour (0xff7a7262);
             }
             else
             {
-                background = juce::Colour (0xffe9ecf1);
-                panel = juce::Colour (0xfff8f9fb);
-                panelRaised = juce::Colour (0xffeef1f5);
-                outline = juce::Colour (0xffcfd5de);
-                track = juce::Colour (0xffd9dee6);
-                text = juce::Colour (0xff1c2028);
-                dimText = juce::Colour (0xff5d6676);
-                faintText = juce::Colour (0xff98a0ad);
+                // Cream white panels with brushed silver hardware.
+                background = juce::Colour (0xffece4d2);
+                panel = juce::Colour (0xfff9f4e8);
+                panelRaised = juce::Colour (0xffe3dfd5);
+                outline = juce::Colour (0xffc9c0ae);
+                track = juce::Colour (0xffdcd3c1);
+                text = juce::Colour (0xff2b2721);
+                dimText = juce::Colour (0xff6e6659);
+                faintText = juce::Colour (0xffa59c8b);
             }
         }
 
         Theme theme() { return currentTheme; }
+
+        juce::ColourGradient metal (juce::Rectangle<float> area, bool pressed)
+        {
+            // Brushed metal: a bright top, a soft horizon in the middle, a
+            // darker bottom. Pressed metal is lit from below.
+            const bool dark = currentTheme == Theme::Dark;
+            const juce::Colour hi (dark ? 0xff6b6c70 : 0xfffdfcf8);
+            const juce::Colour mid (dark ? 0xff4a4b4f : 0xffe6e2d9);
+            const juce::Colour horizon (dark ? 0xff3d3e42 : 0xffd6d1c6);
+            const juce::Colour lo (dark ? 0xff2a2b2e : 0xffc2bcaf);
+            juce::ColourGradient gradient (pressed ? lo : hi, 0.0f, area.getY(),
+                                           pressed ? hi : lo, 0.0f, area.getBottom(), false);
+            gradient.addColour (0.48, pressed ? horizon : mid);
+            gradient.addColour (0.52, pressed ? mid : horizon);
+            return gradient;
+        }
+
+        void fillMetal (juce::Graphics& g, juce::Rectangle<float> area, float corner, bool pressed, float opacity)
+        {
+            g.setGradientFill (metal (area, pressed));
+            g.setOpacity (opacity);
+            g.fillRoundedRectangle (area, corner);
+            // Fine brushing lines.
+            {
+                juce::Graphics::ScopedSaveState save (g);
+                juce::Path clip;
+                clip.addRoundedRectangle (area, corner);
+                g.reduceClipRegion (clip);
+                const auto line = (currentTheme == Theme::Dark ? juce::Colours::white : juce::Colours::black)
+                                      .withAlpha (0.025f * opacity);
+                g.setColour (line);
+                for (float y = area.getY() + 1.0f; y < area.getBottom(); y += 2.0f)
+                    g.drawHorizontalLine ((int) y, area.getX(), area.getRight());
+            }
+            // Top edge catches the light, the bottom edge falls into shadow.
+            g.setColour (juce::Colours::white.withAlpha ((currentTheme == Theme::Dark ? 0.18f : 0.8f) * opacity));
+            g.drawHorizontalLine ((int) area.getY() + 1, area.getX() + corner, area.getRight() - corner);
+            g.setColour (outline.withMultipliedAlpha (opacity));
+            g.drawRoundedRectangle (area, corner, 1.0f);
+        }
+
+        void setPartOverride (int index, std::optional<juce::Colour> colour)
+        {
+            overrides[(size_t) juce::jlimit (0, 5, index)] = colour;
+        }
+
+        std::optional<juce::Colour> partOverride (int index)
+        {
+            return overrides[(size_t) juce::jlimit (0, 5, index)];
+        }
 
         juce::Colour part (int index)
         {
@@ -64,6 +120,8 @@ namespace ambika_plugin
                 juce::Colour (0xff5f9417), juce::Colour (0xff2a78cc), juce::Colour (0xff8458d6),
             };
             const auto i = (size_t) juce::jlimit (0, 5, index);
+            if (overrides[i])
+                return *overrides[i];
             if (const auto& custom = currentSkin().settings.partColours)
                 return (*custom)[i];
             return currentTheme == Theme::Dark ? dark[i] : light[i];
@@ -94,7 +152,10 @@ namespace ambika_plugin
                 for (int x = 0; x < image.getWidth(); ++x)
                 {
                     const auto c = pixels.getPixelColour (x, y);
-                    pixels.setPixelColour (x, y, juce::Colour (255 - c.getRed(), 255 - c.getGreen(), 255 - c.getBlue()));
+                    // Inverted, then tinted cream so white reads as the panel colour.
+                    pixels.setPixelColour (x, y, juce::Colour ((uint8_t) ((255 - c.getRed()) * 249 / 255),
+                                                               (uint8_t) ((255 - c.getGreen()) * 244 / 255),
+                                                               (uint8_t) ((255 - c.getBlue()) * 232 / 255)));
                 }
             return image;
         }();
@@ -199,10 +260,26 @@ namespace ambika_plugin
                          0, frame * size, size, size);
             return;
         }
-        g.setColour (Palette::panelRaised);
-        g.fillEllipse (centre.x - bodyRadius, centre.y - bodyRadius, bodyRadius * 2.0f, bodyRadius * 2.0f);
-        g.setColour (Palette::outline);
-        g.drawEllipse (centre.x - bodyRadius, centre.y - bodyRadius, bodyRadius * 2.0f, bodyRadius * 2.0f, 1.0f);
+        const auto body = juce::Rectangle<float> (bodyRadius * 2.0f, bodyRadius * 2.0f).withCentre (centre);
+        const bool dark = Palette::theme() == Palette::Theme::Dark;
+        // Drop shadow, then a turned-metal cap lit from the top left.
+        g.setColour (juce::Colours::black.withAlpha (dark ? 0.45f : 0.18f));
+        g.fillEllipse (body.translated (0.0f, 1.5f).expanded (0.5f));
+        {
+            juce::ColourGradient cap (juce::Colour (dark ? 0xff76777b : 0xffffffff), body.getX(), body.getY(),
+                                      juce::Colour (dark ? 0xff26272a : 0xffb9b3a6), body.getRight(), body.getBottom(), false);
+            cap.addColour (0.5, juce::Colour (dark ? 0xff45464a : 0xffe2ded4));
+            g.setGradientFill (cap);
+            g.fillEllipse (body);
+            juce::ColourGradient sheen (juce::Colours::white.withAlpha (dark ? 0.16f : 0.55f),
+                                        centre.x - bodyRadius * 0.35f, centre.y - bodyRadius * 0.45f,
+                                        juce::Colours::transparentWhite, centre.x - bodyRadius * 0.35f + bodyRadius * 0.9f,
+                                        centre.y - bodyRadius * 0.45f, true);
+            g.setGradientFill (sheen);
+            g.fillEllipse (body.reduced (bodyRadius * 0.12f));
+        }
+        g.setColour (Palette::outline.darker (dark ? 0.3f : 0.1f));
+        g.drawEllipse (body, 1.0f);
         const auto tip = centre.getPointOnCircumference (bodyRadius * 0.82f, valueAngle);
         const auto base = centre.getPointOnCircumference (bodyRadius * 0.25f, valueAngle);
         g.setColour (Palette::text);
@@ -235,19 +312,23 @@ namespace ambika_plugin
             g.setColour (Palette::dimText);
             g.fillRect (juce::Rectangle<float> (from - 0.5f, bar.getY() - 3.0f, 1.0f, bar.getHeight() + 6.0f));
         }
-        g.setColour (Palette::text);
-        g.fillEllipse (juce::Rectangle<float> (10.0f, 10.0f).withCentre ({ sliderPos, bar.getCentreY() }));
+        const auto thumb = juce::Rectangle<float> (12.0f, 12.0f).withCentre ({ sliderPos, bar.getCentreY() });
+        g.setGradientFill (Palette::metal (thumb, false));
+        g.fillEllipse (thumb);
+        g.setColour (Palette::outline.darker (0.2f));
+        g.drawEllipse (thumb, 1.0f);
     }
 
     void EurekaLookAndFeel::drawComboBox (juce::Graphics& g, int width, int height, bool, int, int, int, int,
                                           juce::ComboBox& box)
     {
         const auto area = juce::Rectangle<int> (width, height).toFloat().reduced (0.5f);
-        g.setColour (box.findColour (juce::ComboBox::backgroundColourId));
-        g.fillRoundedRectangle (area, 4.0f);
-        g.setColour (box.hasKeyboardFocus (false) ? accentColour.withAlpha (0.6f)
-                                                  : box.findColour (juce::ComboBox::outlineColourId));
-        g.drawRoundedRectangle (area, 4.0f, 1.0f);
+        Palette::fillMetal (g, area, 4.0f, false, box.isEnabled() ? 1.0f : 0.5f);
+        if (box.hasKeyboardFocus (false))
+        {
+            g.setColour (accentColour.withAlpha (0.6f));
+            g.drawRoundedRectangle (area, 4.0f, 1.0f);
+        }
 
         juce::Path arrow;
         const float cx = (float) width - 11.0f, cy = (float) height * 0.5f;
@@ -280,7 +361,7 @@ namespace ambika_plugin
     }
 
     void EurekaLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& button, const juce::Colour&,
-                                                  bool isMouseOverButton, bool)
+                                                  bool isMouseOverButton, bool isButtonDown)
     {
         const auto area = button.getLocalBounds().toFloat().reduced (0.5f);
         const auto on = button.findColour (juce::TextButton::buttonOnColourId);
@@ -291,10 +372,12 @@ namespace ambika_plugin
         }
         else
         {
-            g.setColour (isMouseOverButton ? Palette::panelRaised.brighter (0.08f) : Palette::panelRaised);
-            g.fillRoundedRectangle (area, 5.0f);
-            g.setColour (Palette::outline);
-            g.drawRoundedRectangle (area, 5.0f, 1.0f);
+            Palette::fillMetal (g, area, 5.0f, isButtonDown, button.isEnabled() ? 1.0f : 0.5f);
+            if (isMouseOverButton && ! isButtonDown)
+            {
+                g.setColour (juce::Colours::white.withAlpha (0.08f));
+                g.fillRoundedRectangle (area, 5.0f);
+            }
         }
     }
 

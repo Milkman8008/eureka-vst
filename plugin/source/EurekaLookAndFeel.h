@@ -2,6 +2,8 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <optional>
+
 namespace ambika_plugin
 {
     namespace Palette
@@ -20,8 +22,18 @@ namespace ambika_plugin
         extern juce::Colour dimText;
         extern juce::Colour faintText;
 
+        // Brushed metal (silver in light mode, gunmetal in dark mode) for
+        // the header, buttons, combo boxes and knob caps.
+        juce::ColourGradient metal (juce::Rectangle<float> area, bool pressed = false);
+        void fillMetal (juce::Graphics&, juce::Rectangle<float> area, float corner, bool pressed = false,
+                        float opacity = 1.0f);
+
         // One colour per part; the editor's accent follows the edited part.
         juce::Colour part (int index);
+        // User highlight colours (from the header's colour button); they win
+        // over the theme and skin colours. An empty optional clears one.
+        void setPartOverride (int index, std::optional<juce::Colour>);
+        std::optional<juce::Colour> partOverride (int index);
     }
 
     // The UI typeface (Bageo, compiled in), as FontOptions for every text.

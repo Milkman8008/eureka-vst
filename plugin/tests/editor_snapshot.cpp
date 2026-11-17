@@ -101,7 +101,7 @@ namespace
             g.drawText ("!", 10 + w, 4, 40, 72, juce::Justification::centredLeft);
             g.setColour (Palette::faintText);
             g.setFont (juce::Font (ambika_plugin::eurekaFont (21.0f)));
-            g.drawText ("after the Mutable Instruments Ambika", 10, 74, 440, 28, juce::Justification::centredLeft);
+            g.drawText ("Tootable Instruments", 10, 74, 440, 28, juce::Justification::centredLeft);
         }
         writePng (logo, dir.getChildFile ("logo.png"));
 
@@ -240,6 +240,15 @@ int main (int argc, char** argv)
     editor->showPage (2);
     snapshot (*editor, base, "light-multi");
     editor->toggleTheme();
+
+    // A custom highlight colour for the edited part (not saved: the
+    // preference is only written by the colour pop-up).
+    ambika_plugin::Palette::setPartOverride (1, juce::Colour (0xffe0457b));
+    editor->highlightsChanged();
+    editor->showPage (0);
+    snapshot (*editor, base, "highlight");
+    ambika_plugin::Palette::setPartOverride (1, {});
+    editor->highlightsChanged();
 
     // Presets: a few saved sounds, part 2 modified after loading.
     auto& presets = processor.presets();

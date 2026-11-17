@@ -480,8 +480,16 @@ namespace ambika_plugin
     {
         const auto area = getLocalBounds().toFloat().reduced (0.5f);
         const float opacity = currentSkin().settings.panelOpacity;
-        g.setColour (Palette::panel.withMultipliedAlpha (opacity));
+        // A soft vertical shade, a light top edge and a hairline outline.
+        const bool dark = Palette::theme() == Palette::Theme::Dark;
+        juce::ColourGradient shade (Palette::panel.brighter (dark ? 0.12f : 0.02f).withMultipliedAlpha (opacity),
+                                    0.0f, area.getY(),
+                                    Palette::panel.darker (dark ? 0.15f : 0.03f).withMultipliedAlpha (opacity),
+                                    0.0f, area.getBottom(), false);
+        g.setGradientFill (shade);
         g.fillRoundedRectangle (area, 8.0f);
+        g.setColour (juce::Colours::white.withAlpha ((dark ? 0.07f : 0.9f) * opacity));
+        g.drawHorizontalLine (1, area.getX() + 8.0f, area.getRight() - 8.0f);
         g.setColour (Palette::outline.withMultipliedAlpha (opacity));
         g.drawRoundedRectangle (area, 8.0f, 1.0f);
         g.setColour (findColour (juce::Slider::rotarySliderFillColourId));

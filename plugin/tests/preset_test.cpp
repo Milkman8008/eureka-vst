@@ -138,14 +138,14 @@ int main()
 
     // Init everything also resets the voice routing.
     set (processor, ambika_plugin::voicePartId (3), 3.0f);
-    set (processor, ambika_plugin::kVoiceModeId, 1.0f);
+    set (processor, ambika_plugin::kVoiceModeId, 0.0f);
     set (processor, ambika_plugin::kUnisonId, 3.0f);
     set (processor, ambika_plugin::partKeyLowId (1), 60.0f);
     set (processor, "p5_filter_cutoff", 5.0f);
     presets.initialiseAll();
-    check (get (processor, ambika_plugin::voicePartId (3)) == 1.0f && get (processor, ambika_plugin::kVoiceModeId) == 0.0f
+    check (get (processor, ambika_plugin::voicePartId (3)) == 1.0f && get (processor, ambika_plugin::kVoiceModeId) == 2.0f
                && get (processor, ambika_plugin::kUnisonId) == 1.0f && get (processor, ambika_plugin::partKeyLowId (1)) == 0.0f,
-           "init everything resets voice cards, voice mode, unison and splits");
+           "init everything resets voice cards, voice mode (poly), unison and splits");
     check (get (processor, "p5_filter_cutoff") == 96.0f && presets.presetName (4) == "Init",
            "init everything resets every part's sound");
     set (processor, ambika_plugin::voicePartId (2), 2.0f);

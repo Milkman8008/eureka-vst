@@ -150,6 +150,9 @@ namespace ambika_plugin
         void editPart (int part);
         void showSaveDialog();
         void toggleTheme();
+        // Re-colours the UI after the highlight colours change.
+        void highlightsChanged();
+        void showHighlightEditor (juce::Component& button);
 
     private:
         class Content;
@@ -159,6 +162,7 @@ namespace ambika_plugin
         AmbikaAudioProcessor& audioProcessor;
         EurekaLookAndFeel lookAndFeel;
         std::unique_ptr<Content> content;
+        juce::Component::SafePointer<juce::CallOutBox> highlightBox;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AmbikaAudioProcessorEditor)
     };

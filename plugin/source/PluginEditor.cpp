@@ -621,6 +621,173 @@ namespace ambika_plugin
             settings->saveIfNeeded();
         }
 
+        // Highlight colours: "accent1".."accent6" as hex, absent = theme colour.
+        void loadHighlightPreferences()
+        {
+            auto settings = openSettings();
+            for (int i = 0; i < kNumParts; ++i)
+            {
+                const auto hex = settings->getValue ("accent" + juce::String (i + 1));
+                Palette::setPartOverride (i, hex.isEmpty() ? std::optional<juce::Colour>()
+                                                           : std::optional<juce::Colour> (juce::Colour::fromString (hex)));
+            }
+        }
+
+        void saveHighlightPreferences()
+        {
+            auto settings = openSettings();
+            for (int i = 0; i < kNumParts; ++i)
+            {
+                const auto key = "accent" + juce::String (i + 1);
+                if (const auto colour = Palette::partOverride (i))
+                    settings->setValue (key, colour->toString());
+                else
+                    settings->removeValue (key);
+            }
+            settings->saveIfNeeded();
+        }
+
+        // "#ff8800", "ff8800" or "#f80"; nothing for anything else.
+        std::optional<juce::Colour> parseHex (juce::String text)
+        {
+            text = text.trim().trimCharactersAtStart ("#");
+            if (! text.containsOnly ("0123456789abcdefABCDEF"))
+                return {};
+            if (text.length() == 3)
+                text = juce::String::charToString (text[0]) + text[0] + text[1] + text[1] + text[2] + text[2];
+            if (text.length() != 6)
+                return {};
+            return juce::Colour ((juce::uint32) (0xff000000u | (juce::uint32) text.getHexValue32()));
+        }
+
+        juce::String toHex (juce::Colour colour)
+        {
+            return "#" + colour.toDisplayString (false).toUpperCase();
+        }
+
+        // Header button: a swatch of the edited part's highlight colour.
+        class HighlightButton final : public juce::Button
+        {
+        public:
+            HighlightButton() : juce::Button ("highlight")
+            {
+                setTooltip ("Change the highlight colour (hex code)");
+            }
+
+            void paintButton (juce::Graphics& g, bool over, bool) override
+            {
+                auto area = getLocalBounds().toFloat().reduced (1.0f);
+                Palette::fillMetal (g, area, 5.0f);
+                if (over)
+                {
+                    g.setColour (juce::Colours::white.withAlpha (0.08f));
+                    g.fillRoundedRectangle (area, 5.0f);
+                }
+                const auto swatch = juce::Rectangle<float> (14.0f, 14.0f).withCentre (area.getCentre());
+                g.setColour (findColour (juce::Slider::rotarySliderFillColourId));
+                g.fillEllipse (swatch);
+                g.setColour (Palette::outline.darker (0.3f));
+                g.drawEllipse (swatch, 1.0f);
+            }
+        };
+
+        // The pop-up: a hex field for the edited part (or all parts).
+        class HighlightEditor final : public juce::Component
+        {
+        public:
+            HighlightEditor (int partIndex, std::function<void()> changed)
+                : part (partIndex), onChanged (std::move (changed))
+            {
+                title.setText ("Highlight colour - part " + juce::String (part + 1), juce::dontSendNotification);
+                title.setFont (juce::Font (eurekaFont (13.0f, juce::Font::bold)));
+                addAndMakeVisible (title);
+
+                hex.setText (toHex (Palette::part (part)), false);
+                hex.setFont (juce::Font (eurekaFont (14.0f)));
+                hex.setInputRestrictions (7, "#0123456789abcdefABCDEF");
+                hex.setJustification (juce::Justification::centredLeft);
+                hex.onTextChange = [this] { repaint(); };
+                hex.onReturnKey = [this] { apply(); };
+                addAndMakeVisible (hex);
+
+                allParts.setButtonText ("All parts");
+                allParts.setClickingTogglesState (true);
+                addAndMakeVisible (allParts);
+                applyButton.onClick = [this] { apply(); };
+                addAndMakeVisible (applyButton);
+                resetButton.setTooltip ("Back to the theme's colours (every part)");
+                resetButton.onClick = [this]
+                {
+                    for (int i = 0; i < kNumParts; ++i)
+                        Palette::setPartOverride (i, {});
+                    saveHighlightPreferences();
+                    hex.setText (toHex (Palette::part (part)), false);
+                    onChanged();
+                    repaint();
+                };
+                addAndMakeVisible (resetButton);
+                setSize (260, 118);
+            }
+
+            void paint (juce::Graphics& g) override
+            {
+                const auto colour = parseHex (hex.getText());
+                g.setColour (colour.value_or (Palette::panelRaised));
+                g.fillRoundedRectangle (swatch.toFloat(), 5.0f);
+                g.setColour (Palette::outline);
+                g.drawRoundedRectangle (swatch.toFloat(), 5.0f, 1.0f);
+                if (! colour)
+                {
+                    g.setColour (Palette::faintText);
+                    g.setFont (juce::Font (eurekaFont (10.0f)));
+                    g.drawText ("?", swatch, juce::Justification::centred);
+                }
+            }
+
+            void resized() override
+            {
+                auto area = getLocalBounds().reduced (10);
+                title.setBounds (area.removeFromTop (20));
+                area.removeFromTop (6);
+                auto row = area.removeFromTop (28);
+                swatch = row.removeFromLeft (28);
+                row.removeFromLeft (8);
+                hex.setBounds (row.removeFromLeft (110));
+                row.removeFromLeft (8);
+                allParts.setBounds (row);
+                area.removeFromTop (8);
+                auto buttons = area.removeFromTop (28);
+                resetButton.setBounds (buttons.removeFromLeft (80));
+                applyButton.setBounds (buttons.removeFromRight (80));
+            }
+
+        private:
+            void apply()
+            {
+                const auto colour = parseHex (hex.getText());
+                if (! colour)
+                {
+                    hex.setColour (juce::TextEditor::outlineColourId, juce::Colour (0xfff0647a));
+                    hex.repaint();
+                    return;
+                }
+                hex.setColour (juce::TextEditor::outlineColourId, Palette::outline);
+                hex.setText (toHex (*colour), false);
+                for (int i = 0; i < kNumParts; ++i)
+                    if (allParts.getToggleState() || i == part)
+                        Palette::setPartOverride (i, *colour);
+                saveHighlightPreferences();
+                onChanged();
+            }
+
+            int part;
+            std::function<void()> onChanged;
+            juce::Label title;
+            juce::TextEditor hex;
+            juce::TextButton allParts, applyButton { "Apply" }, resetButton { "Reset" };
+            juce::Rectangle<int> swatch;
+        };
+
         // Header button: a moon in dark mode, a sun in light mode.
         class ThemeToggle final : public juce::Button
         {
@@ -633,10 +800,12 @@ namespace ambika_plugin
             void paintButton (juce::Graphics& g, bool over, bool) override
             {
                 auto area = getLocalBounds().toFloat().reduced (1.0f);
-                g.setColour (over ? Palette::panelRaised.brighter (0.06f) : Palette::panelRaised);
-                g.fillRoundedRectangle (area, 5.0f);
-                g.setColour (Palette::outline);
-                g.drawRoundedRectangle (area, 5.0f, 1.0f);
+                Palette::fillMetal (g, area, 5.0f);
+                if (over)
+                {
+                    g.setColour (juce::Colours::white.withAlpha (0.08f));
+                    g.fillRoundedRectangle (area, 5.0f);
+                }
                 const auto centre = area.getCentre();
                 g.setColour (Palette::text);
                 if (Palette::theme() == Palette::Theme::Dark)
@@ -671,7 +840,7 @@ namespace ambika_plugin
     {
     public:
         Content (AmbikaAudioProcessor& p, std::function<void (int)> showPageFn, std::function<void (int)> editPartFn,
-                 std::function<void()> toggleThemeFn)
+                 std::function<void()> toggleThemeFn, std::function<void (juce::Component&)> showHighlightsFn)
             : processor (p),
               presetContext { p.presets(), [&p] { return p.editedPart(); },
                               [this] (const juce::String& text, bool isError) { showToast (text, isError); },
@@ -709,6 +878,8 @@ namespace ambika_plugin
             addAndMakeVisible (output);
             themeToggle.onClick = std::move (toggleThemeFn);
             addAndMakeVisible (themeToggle);
+            highlightButton.onClick = [this, showHighlightsFn] { showHighlightsFn (highlightButton); };
+            addAndMakeVisible (highlightButton);
             addAndMakeVisible (bar);
             addChildComponent (dialog);
         }
@@ -760,8 +931,8 @@ namespace ambika_plugin
                 g.drawImage (background, getLocalBounds().toFloat(), juce::RectanglePlacement::stretchToFit);
 
             const auto header = getLocalBounds().removeFromTop (kHeaderHeight);
-            g.setColour (Palette::panel.withMultipliedAlpha (skin.settings.headerOpacity));
-            g.fillRect (header);
+            // Brushed metal strip.
+            Palette::fillMetal (g, header.toFloat(), 0.0f, false, skin.settings.headerOpacity);
             g.setColour (Palette::outline.withMultipliedAlpha (skin.settings.headerOpacity));
             g.drawHorizontalLine (kHeaderHeight - 1, 0.0f, (float) getWidth());
 
@@ -795,7 +966,7 @@ namespace ambika_plugin
                 g.drawText ("!", x + wordWidth + 1, 6, 20, 34, juce::Justification::centredLeft);
                 g.setColour (Palette::faintText);
                 g.setFont (juce::Font (eurekaFont (10.0f)));
-                g.drawText ("after the Mutable Instruments Ambika", x + 1, 38, 190, 16, juce::Justification::centredLeft, true);
+                g.drawText ("Tootable Instruments", x + 1, 38, 190, 16, juce::Justification::centredLeft, true);
             }
 
             g.setColour (Palette::dimText);
@@ -833,15 +1004,17 @@ namespace ambika_plugin
             }
             auto right = header;
             themeToggle.setBounds (right.removeFromRight (32));
+            right.removeFromRight (6);
+            highlightButton.setBounds (right.removeFromRight (32));
             right.removeFromRight (12);
-            output.setBounds (right.removeFromRight (120));
+            output.setBounds (right.removeFromRight (100));
             right.removeFromRight (44);
             voiceLedsArea = right.removeFromRight (108);
             right.removeFromRight (62);
             for (int i = kNumParts - 1; i >= 0; --i)
             {
-                partButtons[(size_t) i].setBounds (right.removeFromRight (34));
-                right.removeFromRight (5);
+                partButtons[(size_t) i].setBounds (right.removeFromRight (31));
+                right.removeFromRight (4);
             }
 
             bar.setBounds (0, kHeaderHeight, getWidth(), kPresetBarHeight);
@@ -867,6 +1040,17 @@ namespace ambika_plugin
                 repaint();  // Page-specific background.
             for (int i = 0; i < 3; ++i)
                 pageButtons[(size_t) i].setToggleState (i == index, juce::dontSendNotification);
+        }
+
+        // After the highlight colours change.
+        void refreshPartColours()
+        {
+            for (int i = 0; i < kNumParts; ++i)
+            {
+                partButtons[(size_t) i].setColour (juce::TextButton::buttonOnColourId, Palette::part (i));
+                partButtons[(size_t) i].setColour (juce::TextButton::textColourOffId, Palette::part (i));
+            }
+            repaint();
         }
 
         void setEditedPart (int part)
@@ -914,6 +1098,7 @@ namespace ambika_plugin
         MultiPage multi;
         ParameterControl output;
         ThemeToggle themeToggle;
+        HighlightButton highlightButton;
         juce::Rectangle<int> voiceLedsArea;
         std::array<uint8_t, kNumVoices> shownLevels {};
     };
@@ -926,6 +1111,7 @@ namespace ambika_plugin
         // plug-in scan), so edits show up the next time the window opens.
         setCurrentSkin (Skin::load());
         Palette::setTheme (loadThemePreference());
+        loadHighlightPreferences();
         lookAndFeel.applyTheme();
         setLookAndFeel (&lookAndFeel);
         buildContent (0);
@@ -940,6 +1126,7 @@ namespace ambika_plugin
     AmbikaAudioProcessorEditor::~AmbikaAudioProcessorEditor()
     {
         stopTimer();
+        delete highlightBox.getComponent();
         content.reset();
         setLookAndFeel (nullptr);
     }
@@ -977,7 +1164,8 @@ namespace ambika_plugin
                 // Rebuild after the click has finished (the button lives in content).
                 juce::Component::SafePointer<AmbikaAudioProcessorEditor> safe (this);
                 juce::MessageManager::callAsync ([safe] { if (safe != nullptr) safe->toggleTheme(); });
-            });
+            },
+            [this] (juce::Component& button) { showHighlightEditor (button); });
         content->setSize (designWidth, designHeight);
         addAndMakeVisible (*content);
         editPart (audioProcessor.editedPart());
@@ -993,6 +1181,23 @@ namespace ambika_plugin
         lookAndFeel.applyTheme();
         // Controls take their colours when they are built, so build them again.
         buildContent (content->page());
+    }
+
+    void AmbikaAudioProcessorEditor::showHighlightEditor (juce::Component& button)
+    {
+        if (highlightBox != nullptr)
+            return;
+        auto editor = std::make_unique<HighlightEditor> (audioProcessor.editedPart(), [this] { highlightsChanged(); });
+        // A child of this window (so it inherits the look and closes with it).
+        highlightBox = &juce::CallOutBox::launchAsynchronously (
+            std::move (editor), getLocalArea (&button, button.getLocalBounds()), this);
+    }
+
+    void AmbikaAudioProcessorEditor::highlightsChanged()
+    {
+        content->refreshPartColours();
+        editPart (audioProcessor.editedPart());
+        repaint();
     }
 
     void AmbikaAudioProcessorEditor::showSaveDialog()

@@ -87,7 +87,7 @@ to cards whose part covers it.
   Parts that own cards layer.
 - **Cyclic**: notes step through cards 1, 2 ... 6 in order, whatever part each
   card plays, so successive notes can cycle through different patches.
-- **Poly**: each note takes the free card that has rested longest, stealing
+- **Poly** (the default): each note takes the free card that has rested longest, stealing
   the oldest note when all six are busy.
 
 **Unison** (Cyclic and Poly) plays 1-6 cards per note: with 2, notes take
@@ -137,6 +137,12 @@ The sun/moon button at the right of the header switches between dark and
 light mode. The choice is a user preference (not saved in projects), stored
 in `~/Library/Application Support/eureka/eureka.settings`.
 
+The colour button next to it changes the highlight colour (curves, knob
+arcs, part buttons) with a hex code such as `#E0457B` or `f80`: for the
+edited part, or for all parts with **All parts**. **Reset** goes back to the
+theme's colours. Highlights are saved in the same settings file and win over
+a skin's `partColours`.
+
 ## Skins
 
 The look can be changed with image files, no code needed. Generate the
@@ -171,7 +177,7 @@ been changed since it was loaded or saved.
   with optional author and comment. Saving over an existing name asks first.
 - **Init** opens a menu: reset the edited part's sound, or **everything**:
   all six parts plus the voice routing (voice cards back to part 1, voice
-  mode Per part, unison 1, full keyboard ranges).
+  mode Poly, unison 1, full keyboard ranges).
 - **Browse** opens the browser: search, filter by tags, double-click to load,
   rename, delete (to the Trash), and open the presets folder.
 

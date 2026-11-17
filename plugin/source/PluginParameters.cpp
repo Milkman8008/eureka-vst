@@ -99,7 +99,7 @@ namespace ambika_plugin
         }
         multi->addChild (std::make_unique<juce::AudioParameterChoice> (
             juce::ParameterID { kVoiceModeId, 1 }, "Voice Mode",
-            juce::StringArray { "per part", "cyclic", "poly" }, 0));
+            juce::StringArray { "per part", "cyclic", "poly" }, 2));
         multi->addChild (std::make_unique<juce::AudioParameterInt> (
             juce::ParameterID { kUnisonId, 1 }, "Unison", 1, kNumVoices, 1));
         layout.add (std::move (multi));
