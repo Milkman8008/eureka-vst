@@ -21,14 +21,16 @@ standalone app for macOS.
 
 ## Installing
 
-1. Copy `eureka!.vst3` to `/Library/Audio/Plug-Ins/VST3/` (or the
+1. Download `eureka-macOS.zip` from
+   [Releases](https://github.com/Milkman8008/ambika-vst/releases) and unzip it.
+2. Copy `eureka!.vst3` to `/Library/Audio/Plug-Ins/VST3/` (or the
    `eureka!.component` to `/Library/Audio/Plug-Ins/Components/` for AU).
-2. Downloaded builds are not notarized. If macOS blocks the plug-in, run this
+3. Downloaded builds are not notarized. If macOS blocks the plug-in, run this
    once in Terminal:
    ```sh
    xattr -dr com.apple.quarantine "/Library/Audio/Plug-Ins/VST3/eureka!.vst3"
    ```
-3. Rescan your plug-ins. In Ableton Live, hold **Option** and click
+4. Rescan your plug-ins. In Ableton Live, hold **Option** and click
    **Rescan** in Preferences → Plug-Ins. eureka! appears under
    **Tootable Instruments**.
 
@@ -171,7 +173,7 @@ your files in **Documents/eureka/skin** and reopen the plug-in window.
 You need macOS with the Xcode command line tools and CMake 3.22 or newer.
 
 ```sh
-git clone --recursive <this repo>
+git clone --recursive https://github.com/Milkman8008/ambika-vst.git
 cd ambika-vst
 cmake -S plugin -B plugin/build/release -DCMAKE_BUILD_TYPE=Release
 cmake --build plugin/build/release -j8
