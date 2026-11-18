@@ -204,6 +204,12 @@ int main (int argc, char** argv)
         dynamic_cast<ambika_plugin::AmbikaAudioProcessorEditor*> (processor.createEditor()));
     const juce::File base { juce::String (argv[1]) };
 
+    // Render the theme's own colours, whatever highlights this machine's
+    // user has chosen (not saved: only the colour pop-up writes them).
+    for (int part = 0; part < ambika_plugin::kNumParts; ++part)
+        ambika_plugin::Palette::setPartOverride (part, {});
+    editor->highlightsChanged();
+
     const char* pages[] = { "synth", "mod", "multi" };
     for (int page = 0; page < 3; ++page)
     {

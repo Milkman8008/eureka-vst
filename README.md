@@ -1,7 +1,15 @@
-# eureka!
+<p align="center">
+  <img src="docs/images/eureka-logo.jpg" alt="eureka! logo" width="160">
+</p>
 
-**A six-part hybrid polysynth plug-in by Tootable Instruments, built on the
-Mutable Instruments Ambika.**
+<h1 align="center">eureka!</h1>
+
+<p align="center"><b>A six-part hybrid polysynth plug-in by Tootable Instruments, built on the
+Mutable Instruments Ambika.</b></p>
+
+<p align="center">
+  <img src="docs/images/screenshot-synth-dark.png" alt="eureka! Synth page in dark mode" width="900">
+</p>
 
 eureka! runs the original Ambika voicecard firmware natively on your
 computer. It adds a model of the analog filter and VCA, a choice of Surge XT
@@ -16,6 +24,11 @@ standalone app for macOS.
 - Preset browser with tags, the 128 Ambika factory programs built in, and
   import of Ambika `.PAT` / `.PRO` / `.MUL` / `.syx` files
 - Light and dark themes with your own highlight colour, plus image skins
+
+<p align="center">
+  <img src="docs/images/screenshot-multi-light.png" alt="eureka! Multi page in light mode" width="900">
+  <br><i>The Multi page in light mode: six voices shared between parts, with keyboard splits.</i>
+</p>
 
 ---
 
