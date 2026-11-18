@@ -35,7 +35,7 @@ standalone app for macOS.
 ## Installing
 
 1. Download `eureka-macOS.zip` from
-   [Releases](https://github.com/Milkman8008/ambika-vst/releases) and unzip it.
+   [Releases](https://github.com/Milkman8008/eureka-vst/releases) and unzip it.
 2. Copy `eureka!.vst3` to `/Library/Audio/Plug-Ins/VST3/` (or the
    `eureka!.component` to `/Library/Audio/Plug-Ins/Components/` for AU).
 3. Downloaded builds are not notarized. If macOS blocks the plug-in, run this
@@ -186,8 +186,8 @@ your files in **Documents/eureka/skin** and reopen the plug-in window.
 You need macOS with the Xcode command line tools and CMake 3.22 or newer.
 
 ```sh
-git clone --recursive https://github.com/Milkman8008/ambika-vst.git
-cd ambika-vst
+git clone --recursive https://github.com/Milkman8008/eureka-vst.git
+cd eureka-vst
 cmake -S plugin -B plugin/build/release -DCMAKE_BUILD_TYPE=Release
 cmake --build plugin/build/release -j8
 ```
