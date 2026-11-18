@@ -11,6 +11,15 @@ Mutable Instruments Ambika.</b></p>
   <img src="docs/images/screenshot-synth-dark.png" alt="eureka! Synth page in dark mode" width="900">
 </p>
 
+## Demo
+
+<p align="center">
+  <a href="https://youtu.be/OeMAyKnqreM">
+    <img src="https://img.youtube.com/vi/OeMAyKnqreM/maxresdefault.jpg" alt="Watch the eureka! demo on YouTube" width="640">
+  </a>
+  <br>▶ <a href="https://youtu.be/OeMAyKnqreM"><b>Watch a short demo of eureka! on YouTube</b></a>
+</p>
+
 eureka! runs the original Ambika voicecard firmware natively on your
 computer. It adds a model of the analog filter and VCA, a choice of Surge XT
 filters, stereo panning and a modern interface. It comes as VST3, AU and a
