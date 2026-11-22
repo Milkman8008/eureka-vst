@@ -167,6 +167,11 @@ target_include_directories(ambika_engine SYSTEM PUBLIC
 	"${CMAKE_CURRENT_SOURCE_DIR}/engine"
 	"${AMBIKA_ROOT}")
 set_target_properties(ambika_engine PROPERTIES POSITION_INDEPENDENT_CODE ON)
+# Windows: M_PI and friends (used by the Surge filter headers) are only
+# declared by <cmath> with _USE_MATH_DEFINES.
+if(WIN32)
+	target_compile_definitions(ambika_engine PUBLIC _USE_MATH_DEFINES NOMINMAX)
+endif()
 
 # The voicecard resources define a 2-byte stand-in for the LFO wavetables;
 # rename it so the controller's full table (controller_tables.cc) is used.

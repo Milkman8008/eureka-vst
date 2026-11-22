@@ -41,7 +41,8 @@ enum YamShape {
 
 // Patch waveform numbers: the YAM shapes follow the stock list.
 const uint8_t kFirstYamWaveform = WAVEFORM_LAST;
-const uint8_t kNumWaveforms = WAVEFORM_LAST + YAM_LAST;
+const uint8_t kNumWaveforms =
+    static_cast<uint8_t>(WAVEFORM_LAST) + static_cast<uint8_t>(YAM_LAST);
 const uint8_t kWaveformYamFmFb = kFirstYamWaveform + YAM_FM_FB;
 
 inline bool IsYamWaveform(uint8_t shape) {
