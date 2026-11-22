@@ -19,7 +19,7 @@ jobs:
   windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: true
 
@@ -28,8 +28,21 @@ jobs:
       - name: Configure
         run: cmake -S plugin -B build -A x64 -T ClangCL
 
+      # On failure, the compiler errors are also posted as annotations, so
+      # they show on the run's summary page without opening the log.
       - name: Build
-        run: cmake --build build --config Release --parallel
+        shell: pwsh
+        run: |
+          cmake --build build --config Release --parallel 2>&1 | Tee-Object -FilePath build-log.txt
+          if ($LASTEXITCODE -ne 0) {
+            $errors = Select-String -Path build-log.txt -Pattern '(: error|error:|fatal error|LNK\d{4}|CMake Error)' |
+              ForEach-Object { $_.Line.Trim() } | Select-Object -Unique | Select-Object -First 10
+            foreach ($e in $errors) {
+              $msg = $e -replace '%', '%25' -replace "`r", '' -replace "`n", '%0A'
+              Write-Output "::error::$msg"
+            }
+            exit 1
+          }
 
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure

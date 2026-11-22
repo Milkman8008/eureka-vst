@@ -305,8 +305,12 @@ if(AMBIKA_BUILD_PLUGIN)
 			juce::juce_audio_utils
 		PUBLIC
 			juce::juce_recommended_config_flags
-			juce::juce_recommended_lto_flags
 			juce::juce_recommended_warning_flags)
+	# Link-time optimisation: not on Windows, where clang-cl's -flto objects
+	# would need lld-link instead of the Visual Studio linker.
+	if(NOT WIN32)
+		target_link_libraries(AmbikaPlugin PUBLIC juce::juce_recommended_lto_flags)
+	endif()
 
 	# Host-side test: loads the built VST3 bundle like a DAW would.
 	if(BUILD_TESTING)
