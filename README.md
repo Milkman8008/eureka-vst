@@ -23,7 +23,7 @@ Mutable Instruments Ambika.</b></p>
 eureka! runs the original Ambika voicecard firmware natively on your
 computer. It adds a model of the analog filter and VCA, a choice of Surge XT
 filters, stereo panning and a modern interface. It comes as VST3, AU and a
-standalone app for macOS.
+standalone app for macOS, and as VST3 and a standalone app for Windows.
 
 - 6 parts, each with its own patch, and 6 voices you can share between them
 - The Ambika's oscillators and wavetables, plus 7 oscillators from the YAM
@@ -44,6 +44,8 @@ standalone app for macOS.
 
 ## Installing
 
+### macOS
+
 1. Download `eureka-macOS.zip` from
    [Releases](https://github.com/Milkman8008/eureka-vst/releases) and unzip it.
 2. Copy `eureka!.vst3` to `/Library/Audio/Plug-Ins/VST3/` (or the
@@ -56,6 +58,19 @@ standalone app for macOS.
 4. Rescan your plug-ins. In Ableton Live, hold **Option** and click
    **Rescan** in Preferences → Plug-Ins. eureka! appears under
    **Tootable Instruments**.
+
+### Windows (64-bit)
+
+1. Download `eureka-windows.zip` from
+   [Releases](https://github.com/Milkman8008/eureka-vst/releases) and unzip it.
+2. Copy the `eureka!.vst3` folder to `C:\Program Files\Common Files\VST3\`.
+3. Rescan your plug-ins. In Ableton Live, turn on **Use VST3 Plug-In System
+   Folders** in Options → Preferences → Plug-Ins, then click **Rescan**.
+4. For the standalone app, run `eureka!.exe` from any folder and pick your
+   audio and MIDI devices in **Options → Audio/MIDI Settings**.
+
+The Windows build is not code-signed: if SmartScreen says "Windows protected
+your PC", click **More info**, then **Run anyway**.
 
 To build it yourself, see [Building](#building).
 
@@ -198,13 +213,12 @@ your files in **Documents/eureka/skin** and reopen the plug-in window.
 
 - The Ambika's arpeggiator and step sequencer, ragas and microtuning
 - Separate outputs for each part; eureka! has one stereo output
-- Windows builds
 
 ---
 
 ## Building
 
-You need macOS with the Xcode command line tools and CMake 3.22 or newer.
+**macOS:** you need the Xcode command line tools and CMake 3.22 or newer.
 
 ```sh
 git clone --recursive https://github.com/Milkman8008/eureka-vst.git
@@ -212,6 +226,19 @@ cd eureka-vst
 cmake -S plugin -B plugin/build/release -DCMAKE_BUILD_TYPE=Release
 cmake --build plugin/build/release -j8
 ```
+
+**Windows:** you need Visual Studio 2022 with the **C++ Clang tools for
+Windows** component, plus CMake. Run in a Developer Command Prompt:
+
+```bat
+git clone --recursive https://github.com/Milkman8008/eureka-vst.git
+cd eureka-vst
+cmake -S plugin -B build -A x64 -T ClangCL
+cmake --build build --config Release
+```
+
+Every push to GitHub also builds the Windows version automatically (the
+**Actions** tab); see [`.github/workflows/build.yml`](.github/workflows/build.yml).
 
 The built plug-ins end up in
 `plugin/build/release/AmbikaPlugin_artefacts/Release/`, under `VST3/`, `AU/`

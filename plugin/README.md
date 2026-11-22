@@ -28,6 +28,25 @@ The built plug-ins are in `plugin/build/release/AmbikaPlugin_artefacts/Release/`
 `.vst3` to `~/Library/Audio/Plug-Ins/VST3/` or the `.component` to
 `~/Library/Audio/Plug-Ins/Components/` to use them in a DAW.
 
+## Building (Windows)
+
+Visual Studio 2022 with the "C++ Clang tools for Windows" component, and
+CMake. The firmware needs GCC/Clang extensions, so the build uses clang-cl
+(the `ClangCL` toolset); configuring with MSVC's own compiler stops with an
+error that says so.
+
+```bat
+cmake -S plugin -B build -A x64 -T ClangCL
+cmake --build build --config Release
+ctest --test-dir build -C Release --output-on-failure
+```
+
+Windows builds VST3 and the standalone app (no AU). GitHub Actions does the
+same on every push (`.github/workflows/build.yml`) and uploads
+`eureka-windows` as a build artifact; a `v*` tag also attaches
+`eureka-windows.zip` to that tag's release. Install notes for users are in
+`plugin/packaging/INSTALL-Windows.txt`.
+
 To build and test only the engine (no JUCE):
 `cmake -S plugin -B plugin/build/engine -DAMBIKA_BUILD_PLUGIN=OFF`.
 

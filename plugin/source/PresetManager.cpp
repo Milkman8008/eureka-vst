@@ -288,12 +288,32 @@ namespace ambika_plugin
     //==============================================================================
     namespace
     {
-        const juce::String kFactoryRoot { "/eureka-factory/" };
+        // Virtual folder of the factory programs (never read from disk).
+        const juce::String kFactoryFolder { "/eureka-factory/" };
+
+        // Separators as '/', without a Windows drive ("C:"), so a path
+        // saved on one system is recognised on the other.
+        juce::String portablePath (const juce::String& path)
+        {
+            auto p = path.replaceCharacter ('\\', '/');
+            if (p.length() >= 2 && p[1] == ':')
+                p = p.substring (2);
+            return p;
+        }
+
+        juce::File factoryFile (const juce::String& fileName)
+        {
+           #if JUCE_WINDOWS
+            return juce::File ("C:\\eureka-factory\\" + fileName);
+           #else
+            return juce::File (kFactoryFolder + fileName);
+           #endif
+        }
     }
 
     bool PresetManager::isFactory (const juce::File& file)
     {
-        return file.getFullPathName().startsWith (kFactoryRoot);
+        return portablePath (file.getFullPathName()).startsWith (kFactoryFolder);
     }
 
     bool PresetManager::isEurekaPreset (const juce::File& file)
@@ -316,7 +336,7 @@ namespace ambika_plugin
                     || ambika_format::parse (juce::MemoryBlock (bytes, (size_t) size), fileName, bundle).failed())
                     continue;
                 PresetInfo info;
-                info.file = juce::File (kFactoryRoot + fileName);
+                info.file = factoryFile (fileName);
                 info.name = bundle.name;
                 info.tags = { "Factory" };
                 info.author = "Mutable Instruments";
@@ -567,7 +587,11 @@ namespace ambika_plugin
             auto& c = current[(size_t) part];
             c.name = node.getProperty ("name", "Init").toString();
             const auto path = node.getProperty ("file", {}).toString();
-            c.file = juce::File::isAbsolutePath (path) ? juce::File (path) : juce::File();
+            if (portablePath (path).startsWith (kFactoryFolder))
+                c.file = factoryFile (path.fromLastOccurrenceOf ("/", false, false)
+                                          .fromLastOccurrenceOf ("\\", false, false));
+            else
+                c.file = juce::File::isAbsolutePath (path) ? juce::File (path) : juce::File();
             c.tags = juce::StringArray::fromTokens (node.getProperty ("tags", {}).toString(), ",", {});
             c.tags.removeEmptyStrings();
             c.author = node.getProperty ("author", {}).toString();

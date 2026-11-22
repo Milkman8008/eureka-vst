@@ -1,0 +1,58 @@
+# Builds eureka! for Windows (VST3 + standalone app) on GitHub's servers.
+#
+# - Every push to master or eureka-plugin, or a manual run (Actions tab >
+#   "Build" > "Run workflow"): download the zip from the run's Artifacts.
+# - Pushing a tag such as v1.1.0 also attaches eureka-windows.zip to a
+#   GitHub release for that tag.
+name: Build
+
+on:
+  push:
+    branches: [master, eureka-plugin]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write  # Needed to attach the zip to a release on tags.
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      # clang-cl (Visual Studio's ClangCL toolset): the Ambika firmware needs
+      # GCC/Clang extensions that MSVC's own compiler rejects.
+      - name: Configure
+        run: cmake -S plugin -B build -A x64 -T ClangCL
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $artefacts = "build/AmbikaPlugin_artefacts/Release"
+          $out = "dist/eureka-windows"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          Copy-Item -Recurse -LiteralPath "$artefacts/VST3/eureka!.vst3" -Destination $out
+          Copy-Item -LiteralPath "$artefacts/Standalone/eureka!.exe" -Destination $out
+          Copy-Item -LiteralPath "plugin/packaging/INSTALL-Windows.txt" -Destination "$out/INSTALL.txt"
+          Compress-Archive -Path "$out" -DestinationPath "dist/eureka-windows.zip" -Force
+          Get-ChildItem -Recurse $out | Select-Object FullName, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: eureka-windows
+          path: dist/eureka-windows
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/eureka-windows.zip

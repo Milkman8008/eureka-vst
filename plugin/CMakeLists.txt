@@ -20,6 +20,13 @@ endif()
 
 option(AMBIKA_BUILD_PLUGIN "Build the JUCE plug-in (needs the JUCE submodule)" ON)
 
+# Windows: build with clang-cl (Visual Studio's "ClangCL" toolset, e.g.
+# cmake -A x64 -T ClangCL). The Ambika firmware relies on GCC/Clang
+# extensions and narrowing conversions that MSVC's own compiler rejects.
+if(MSVC AND NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+	message(FATAL_ERROR "On Windows, build with clang-cl: add -T ClangCL to the cmake command.")
+endif()
+
 get_filename_component(AMBIKA_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
 set(AMBIKA_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
 
@@ -168,12 +175,21 @@ set_source_files_properties("${AMBIKA_ROOT}/voicecard/resources.cc" PROPERTIES
 # Upstream firmware sources are compiled as-is; their warnings are not ours.
 # The generated tables store negative literals in uint8_t arrays, which
 # avr-gcc wraps silently; allow the same wrapping here.
+if(MSVC)
+	set(AMBIKA_NO_WARNINGS "/w")
+else()
+	set(AMBIKA_NO_WARNINGS "-w")
+endif()
 set_source_files_properties(${AMBIKA_UPSTREAM_SOURCES} PROPERTIES
-	COMPILE_OPTIONS "-w;-Wno-c++11-narrowing")
+	COMPILE_OPTIONS "${AMBIKA_NO_WARNINGS};-Wno-c++11-narrowing")
 # common/patch.h uses PROGMEM without including <avr/pgmspace.h> (on the AVR it
 # always arrives through an earlier include). Make it available everywhere.
-target_compile_options(ambika_engine PUBLIC
-	"SHELL:-include \"${CMAKE_CURRENT_SOURCE_DIR}/engine/shim/avr/pgmspace.h\"")
+set(AMBIKA_PGMSPACE_SHIM "${CMAKE_CURRENT_SOURCE_DIR}/engine/shim/avr/pgmspace.h")
+if(MSVC)
+	target_compile_options(ambika_engine PUBLIC "/FI${AMBIKA_PGMSPACE_SHIM}")
+else()
+	target_compile_options(ambika_engine PUBLIC "SHELL:-include \"${AMBIKA_PGMSPACE_SHIM}\"")
+endif()
 
 # --- Tests -------------------------------------------------------------------
 include(CTest)
@@ -190,13 +206,19 @@ if(AMBIKA_BUILD_PLUGIN)
 	endif()
 	add_subdirectory(third_party/JUCE EXCLUDE_FROM_ALL)
 
+	# AU is macOS only; Windows gets the VST3 and the standalone app.
+	set(AMBIKA_FORMATS VST3 Standalone)
+	if(APPLE)
+		list(APPEND AMBIKA_FORMATS AU)
+	endif()
+
 	juce_add_plugin(AmbikaPlugin
 		PRODUCT_NAME "${AMBIKA_PLUGIN_NAME}"
 		COMPANY_NAME "Tootable Instruments"
 		BUNDLE_ID "com.tootableinstruments.eureka"
 		PLUGIN_MANUFACTURER_CODE Akvs
 		PLUGIN_CODE Akv1
-		FORMATS VST3 AU Standalone
+		FORMATS ${AMBIKA_FORMATS}
 		IS_SYNTH TRUE
 		NEEDS_MIDI_INPUT TRUE
 		NEEDS_MIDI_OUTPUT FALSE

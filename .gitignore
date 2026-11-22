@@ -34,3 +34,4 @@
 # The Gerber *.TXT rule above also matches these on case-insensitive file systems.
 !/plugin/CMakeLists.txt
 !/plugin/skin-template/README.txt
+!/plugin/packaging/*.txt
