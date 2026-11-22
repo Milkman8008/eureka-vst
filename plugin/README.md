@@ -115,6 +115,21 @@ The Surge libraries are submodules in `plugin/third_party`, pinned to the
 commits Surge XT uses: `sst-filters`, `sst-basic-blocks` and `simde` (SSE on
 Apple Silicon). They require C++20, which the whole plug-in builds with.
 
+## YAM oscillators
+
+Seven oscillators from **YAM** ("Yet Another Mutation", the alternative
+Ambika voicecard firmware by bjoeri) follow the stock waveform list, so
+existing patches are unchanged: `yam_square`, `yam_saw`, `yam_triangle`,
+`yam_qpwm`, `yam_fmfb`, `yam_csaw`, `yam_vowel2` (patch waveform numbers
+38-44). They are a port of YAM's `voicecard/oscillator.cc` in
+`engine/yam_oscillator.*`, kept close to the original 8-bit code; each
+voice runs them in a separate `YamOscillator` only when a YAM shape is
+selected. YAM's `oldsaw` is left out (it is the stock saw).
+
+Ambika files written by the YAM firmware use different waveform numbers for
+saw/square (PolyBLEP versions in the stock slots) and for YAM's extra
+shapes, so they import with the stock oscillators in those slots.
+
 ## Pan
 
 Each part has a **Pan** control (Voice panel on the Synth page). The

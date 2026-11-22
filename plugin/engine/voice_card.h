@@ -23,6 +23,7 @@
 
 #include "voicecard/envelope.h"
 #include "voicecard/oscillator.h"
+#include "yam_oscillator.h"
 #include "voicecard/voicecard.h"
 
 namespace ambika {
@@ -223,6 +224,8 @@ class VoiceCard {
 
   Oscillator osc_1_;
   Oscillator osc_2_;
+  YamOscillator yam_1_;  // Used instead of osc_1_ / osc_2_ for YAM shapes.
+  YamOscillator yam_2_;
   SubOscillator sub_osc_;
   TransientGenerator transient_generator_;
 

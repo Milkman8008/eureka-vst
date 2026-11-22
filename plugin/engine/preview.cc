@@ -11,6 +11,7 @@
 #include "engine.h"
 #include "voicecard/oscillator.h"
 #include "voicecard/resources.h"
+#include "yam_oscillator.h"
 
 namespace ambika {
 namespace plugin {
@@ -28,7 +29,7 @@ void ZeroFill(T* object) {
 
 void RenderOscillatorPreview(uint8_t shape, uint8_t parameter, int8_t range,
                              uint8_t* out, int num_samples) {
-  if (shape >= WAVEFORM_LAST) {
+  if (shape >= kNumWaveforms) {
     shape = WAVEFORM_NONE;
   }
   Oscillator oscillator;
@@ -36,6 +37,10 @@ void RenderOscillatorPreview(uint8_t shape, uint8_t parameter, int8_t range,
   oscillator.Reset();
   oscillator.set_parameter(parameter);
   oscillator.set_fm_parameter(range + 36);
+  YamOscillator yam;
+  ZeroFill(&yam);
+  yam.set_parameter(parameter);
+  yam.set_fm_parameter(range + 36);
 
   // One cycle per num_samples: the phase is 16.8 fixed point over 2^16.
   const uint32_t increment = (1u << 24) / static_cast<uint32_t>(num_samples);
@@ -49,7 +54,11 @@ void RenderOscillatorPreview(uint8_t shape, uint8_t parameter, int8_t range,
   for (int pass = 0; pass < 2; ++pass) {
     for (int i = 0; i + kAudioBlockSize <= num_samples; i += kAudioBlockSize) {
       // A low note, so the band-limited tables keep all their harmonics.
-      oscillator.Render(shape, 24, phase_increment, no_sync, sync_out, out + i);
+      if (IsYamWaveform(shape)) {
+        yam.Render(shape, 24, phase_increment, no_sync, sync_out, out + i);
+      } else {
+        oscillator.Render(shape, 24, phase_increment, no_sync, sync_out, out + i);
+      }
     }
   }
 }

@@ -275,6 +275,13 @@ int main (int argc, char** argv)
     setParameter (processor, "p2_filter_resonance", 45.0f);
     editor->showPage (0);
     snapshot (*editor, base, "synth-surge");
+
+    // YAM oscillators: yam_csaw (notch) on osc 1, yam_square with PWM on osc 2.
+    setParameter (processor, "p2_osc1_shape", 43.0f);  // yam_csaw
+    setParameter (processor, "p2_osc1_parameter", 70.0f);
+    setParameter (processor, "p2_osc2_shape", 38.0f);  // yam_square
+    setParameter (processor, "p2_osc2_parameter", 60.0f);
+    snapshot (*editor, base, "synth-yam");
     editor->showPage (0);
     editor->showSaveDialog();
     snapshot (*editor, base, "save-dialog");

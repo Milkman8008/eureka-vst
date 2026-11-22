@@ -26,7 +26,8 @@ filters, stereo panning and a modern interface. It comes as VST3, AU and a
 standalone app for macOS.
 
 - 6 parts, each with its own patch, and 6 voices you can share between them
-- The Ambika's oscillators and wavetables, plus 3 envelopes, 4 LFOs and a
+- The Ambika's oscillators and wavetables, plus 7 oscillators from the YAM
+  firmware mod, plus 3 envelopes, 4 LFOs and a
   14-slot modulation matrix
 - Ambika SVF filter model plus 8 Surge XT filters
 - Keyboard splits, cyclic and poly voice allocation, and unison up to 6 voices
@@ -87,7 +88,18 @@ means it has changed since it was loaded or saved.
 ### Synth page: the sound of the edited part
 
 - **Oscillator 1 & 2**: waveform (classic shapes, wavetables, formant,
-  noise...), parameter, range and tune.
+  noise...), parameter, range and tune. At the end of the list are seven
+  oscillators from the **YAM** firmware mod:
+  - `yam_square`: a clean square whose PWM keeps its level
+  - `yam_saw`: a clean saw; Parameter mixes in a second saw edge, for a
+    sub/super-oscillator sound
+  - `yam_triangle`: Parameter folds the triangle
+  - `yam_qpwm`: four detuned pulse waves; Parameter sets the detune and the
+    pulse width together
+  - `yam_fmfb`: FM with feedback; above 64, Parameter adds grit and then
+    digital distortion
+  - `yam_csaw`: a CS-80 style saw; Parameter adds a notch before the ramp
+  - `yam_vowel2`: the vowel oscillator without its phase noise
 - **Mixer**: oscillator balance, cross-modulation (sum, sync, ring mod, xor,
   fold, bits), sub-oscillator, noise, fuzz and bit crush.
 - **Filter**: choose the **Model**:
@@ -212,7 +224,8 @@ eureka! is built on the **Ambika** by **Mutable Instruments**: the firmware
 and design are by Emilie Gillet. The original Ambika README is in
 [AMBIKA-README.md](AMBIKA-README.md), and the hardware and firmware sources
 are kept in this repository unchanged. The extra filters come from
-**Surge XT** (sst-filters, by the Surge Synth Team). The plug-in is built
+**Surge XT** (sst-filters, by the Surge Synth Team). The `yam_`
+oscillators come from the **YAM** Ambika firmware by bjoeri. The plug-in is built
 with **JUCE**.
 
 eureka! is released under the **GPL-3.0**, like the Ambika firmware and the

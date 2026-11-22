@@ -1,5 +1,7 @@
 #include "parameters.h"
 
+#include "yam_oscillator.h"
+
 #include <deque>
 #include <string>
 #include <vector>
@@ -67,9 +69,12 @@ const char* const kOscillatorWaveforms[] = {
   "male", "female", "choir", "tampura", "bowed", "cello", "vibes", "slap",
   "epiano", "organ", "waves", "digital", "drone 1", "drone 2", "metallic",
   "bell", "wavquence",
+  // YAM oscillators (yam_oscillator.h), after the stock list.
+  "yam_square", "yam_saw", "yam_triangle", "yam_qpwm", "yam_fmfb",
+  "yam_csaw", "yam_vowel2",
 };
 static_assert(sizeof(kOscillatorWaveforms) / sizeof(kOscillatorWaveforms[0]) ==
-              WAVEFORM_LAST, "oscillator waveform names");
+              kNumWaveforms, "oscillator waveform names");
 
 const char* const kMixOperators[] = {
   "sum", "sync", "ringmod", "xor", "fold", "bits",
@@ -185,7 +190,7 @@ class ParameterTable {
       const std::string group = "Oscillator " + n;
       const uint8_t base = PRM_PATCH_OSC1_SHAPE + i * 4;
       AddPatch("osc" + n + "_shape", "Osc " + n + " Waveform", group, base + 0,
-               0, WAVEFORM_LAST - 1, kOscillatorWaveforms);
+               0, kNumWaveforms - 1, kOscillatorWaveforms);
       AddPatch("osc" + n + "_parameter", "Osc " + n + " Parameter", group,
                base + 1, 0, 127);
       AddPatch("osc" + n + "_range", "Osc " + n + " Range", group, base + 2,

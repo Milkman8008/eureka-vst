@@ -133,7 +133,9 @@ add_library(ambika_engine STATIC
 	engine/resampler.cc
 	engine/resampler.h
 	engine/voice_card.cc
-	engine/voice_card.h)
+	engine/voice_card.h
+	engine/yam_oscillator.cc
+	engine/yam_oscillator.h)
 
 # Surge XT filters: sst-filters (header only) with sst-basic-blocks and simde
 # (SSE intrinsics on Apple Silicon). Pinned to the commits Surge XT uses.

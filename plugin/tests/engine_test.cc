@@ -9,6 +9,8 @@
 
 #include "engine.h"
 #include "parameters.h"
+#include "preview.h"
+#include "yam_oscillator.h"
 #include "surge_filter.h"
 
 using ambika::plugin::Engine;
@@ -515,6 +517,91 @@ void TestVoiceModes() {
 
 }  // namespace
 
+void TestYamOscillators() {
+  using namespace ambika::plugin;
+  // Names: after the stock list, in order, and the stock list unchanged.
+  int shape_index = -1;
+  for (int i = 0; i < NumParameters(); ++i) {
+    if (std::string(GetParameter(i).id) == "osc1_shape") shape_index = i;
+  }
+  const auto& shape = GetParameter(shape_index);
+  const char* expected[] = { "yam_square", "yam_saw", "yam_triangle", "yam_qpwm",
+                             "yam_fmfb", "yam_csaw", "yam_vowel2" };
+  bool names = shape.max_value == kNumWaveforms - 1 &&
+               std::string(shape.choices[ambika::WAVEFORM_LAST - 1]) == "wavquence" &&
+               std::string(shape.choices[ambika::WAVEFORM_SAW]) == "saw";
+  for (int i = 0; i < YAM_LAST; ++i) {
+    names = names && std::string(shape.choices[kFirstYamWaveform + i]) == expected[i];
+  }
+  Check(names, "yam: the seven YAM waveforms follow the stock list, in order");
+
+  const double rate = 48000.0;
+  bool all_sound = true;
+  for (int yam = 0; yam < YAM_LAST; ++yam) {
+    for (int parameter : { 0, 64, 127 }) {
+      Engine engine;
+      engine.Init(rate);
+      auto& part = engine.part(0);
+      part.SetPatchValue(ambika::PRM_PATCH_OSC1_SHAPE, kFirstYamWaveform + yam);
+      part.SetPatchValue(ambika::PRM_PATCH_OSC1_PWM, parameter);
+      part.SetPatchValue(ambika::PRM_PATCH_MIX_BALANCE, 0);  // Osc 1 only.
+      part.SetPatchValue(ambika::PRM_PATCH_FILTER1_CUTOFF, 127);
+      engine.NoteOn(0, 57, 110);
+      Stats stats = Measure(Render(engine, rate, 0.1));
+      if (!(stats.finite && stats.rms > 0.01 && stats.peak < 1.5)) {
+        std::printf("  %s, parameter %d: rms %.4f peak %.3f\n", expected[yam], parameter,
+                    stats.rms, stats.peak);
+        all_sound = false;
+      }
+    }
+  }
+  Check(all_sound, "yam: every YAM waveform sounds at parameter 0, 64 and 127");
+
+  // Pitch: yam_saw on A3 (220 Hz).
+  {
+    Engine engine;
+    engine.Init(rate);
+    auto& part = engine.part(0);
+    part.SetPatchValue(ambika::PRM_PATCH_OSC1_SHAPE, kFirstYamWaveform + YAM_SAW);
+    part.SetPatchValue(ambika::PRM_PATCH_OSC1_PWM, 0);
+    part.SetPatchValue(ambika::PRM_PATCH_MIX_BALANCE, 0);
+    part.SetPatchValue(ambika::PRM_PATCH_FILTER1_CUTOFF, 127);
+    engine.NoteOn(0, 57, 110);
+    std::vector<float> audio = Render(engine, rate, 0.3);
+    std::vector<float> tail(audio.end() - 8192, audio.end());
+    const double frequency = rate / EstimatePeriod(tail, 100, 500);
+    char label[120];
+    std::snprintf(label, sizeof(label), "yam: yam_saw plays in tune (%.1f Hz for A3)", frequency);
+    Check(std::fabs(frequency - 220.0) < 6.0, label);
+  }
+
+  // yam_fmfb: feedback (parameter above 64) changes the sound.
+  {
+    double rms[2];
+    for (int k = 0; k < 2; ++k) {
+      Engine engine;
+      engine.Init(rate);
+      auto& part = engine.part(0);
+      part.SetPatchValue(ambika::PRM_PATCH_OSC1_SHAPE, kWaveformYamFmFb);
+      part.SetPatchValue(ambika::PRM_PATCH_OSC1_PWM, k == 0 ? 60 : 127);
+      part.SetPatchValue(ambika::PRM_PATCH_MIX_BALANCE, 0);
+      engine.NoteOn(0, 57, 110);
+      rms[k] = Measure(Render(engine, rate, 0.1)).rms;
+    }
+    Check(std::fabs(rms[0] - rms[1]) > 1e-4, "yam: yam_fmfb feedback changes the sound");
+  }
+
+  // Previews (the oscillator display) draw a waveform for every YAM shape.
+  bool previews = true;
+  for (int yam = 0; yam < YAM_LAST; ++yam) {
+    uint8_t wave[160];
+    RenderOscillatorPreview(kFirstYamWaveform + yam, 32, 0, wave, 160);
+    const auto [lo, hi] = std::minmax_element(wave, wave + 160);
+    previews = previews && (*hi - *lo) > 32;
+  }
+  Check(previews, "yam: the oscillator display draws every YAM waveform");
+}
+
 int main() {
   TestSilenceAndNote(44100.0);
   TestSilenceAndNote(48000.0);
@@ -528,6 +615,7 @@ int main() {
   TestSurgeFilters();
   TestPan();
   TestVoiceModes();
+  TestYamOscillators();
   std::printf("%s (%d failure%s)\n", g_failures ? "FAILED" : "OK",
               g_failures, g_failures == 1 ? "" : "s");
   return g_failures ? EXIT_FAILURE : EXIT_SUCCESS;

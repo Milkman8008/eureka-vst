@@ -82,6 +82,8 @@ void VoiceCard::Init() {
   ZeroFill(&part_);
   ZeroFill(&osc_1_);
   ZeroFill(&osc_2_);
+  ZeroFill(&yam_1_);
+  ZeroFill(&yam_2_);
   sub_osc_.Reset();
   transient_generator_.Reset();
   for (uint8_t i = 0; i < kNumEnvelopes; ++i) {
@@ -328,6 +330,10 @@ void VoiceCard::UpdateDestinations() {
   osc_1_.set_fm_parameter(patch_.osc[0].range + 36);
   osc_2_.set_parameter(U15ShiftRight7(dst_[MOD_DST_PARAMETER_2]));
   osc_2_.set_fm_parameter(patch_.osc[1].range + 36);
+  yam_1_.set_parameter(U15ShiftRight7(dst_[MOD_DST_PARAMETER_1]));
+  yam_1_.set_fm_parameter(patch_.osc[0].range + 36);
+  yam_2_.set_parameter(U15ShiftRight7(dst_[MOD_DST_PARAMETER_2]));
+  yam_2_.set_fm_parameter(patch_.osc[1].range + 36);
 
   int8_t attack_mod = U15ShiftRight7(dst_[MOD_DST_ATTACK]) - 64;
   int8_t decay_mod = U15ShiftRight7(dst_[MOD_DST_DECAY]) - 64;
@@ -369,7 +375,9 @@ void VoiceCard::RenderOscillators() {
   for (uint8_t i = 0; i < kNumOscillators; ++i) {
     int16_t pitch = base_pitch;
     // -36 / +36 semitones by the range controller.
-    if (patch_.osc[i].shape != WAVEFORM_FM) {
+    // (YAM: the FM feedback oscillator uses the range as its ratio too.)
+    if (patch_.osc[i].shape != WAVEFORM_FM &&
+        patch_.osc[i].shape != kWaveformYamFmFb) {
       pitch += S8U8Mul(patch_.osc[i].range, 128);
     }
     // -1 / +1 semitones by the detune controller.
@@ -404,21 +412,25 @@ void VoiceCard::RenderOscillators() {
     }
     if (i == 0) {
       sub_osc_.set_increment(U24ShiftRight(increment));
-      osc_1_.Render(
-          patch_.osc[0].shape,
-          midi_note,
-          increment,
-          no_sync_,
-          sync_state_,
-          buffer_);
+      const uint8_t shape = patch_.osc[0].shape;
+      if (IsYamWaveform(shape)) {
+        yam_1_.Render(shape, midi_note, increment, no_sync_, sync_state_,
+                      buffer_);
+      } else {
+        osc_1_.Render(shape < WAVEFORM_LAST ? shape : WAVEFORM_NONE,
+                      midi_note, increment, no_sync_, sync_state_, buffer_);
+      }
     } else {
-      osc_2_.Render(
-          patch_.osc[1].shape,
-          midi_note,
-          increment,
-          patch_.mix_op == OP_SYNC ? sync_state_ : no_sync_,
-          dummy_sync_state_,
-          osc2_buffer_);
+      const uint8_t shape = patch_.osc[1].shape;
+      uint8_t* sync = patch_.mix_op == OP_SYNC ? sync_state_ : no_sync_;
+      if (IsYamWaveform(shape)) {
+        yam_2_.Render(shape, midi_note, increment, sync, dummy_sync_state_,
+                      osc2_buffer_);
+      } else {
+        osc_2_.Render(shape < WAVEFORM_LAST ? shape : WAVEFORM_NONE,
+                      midi_note, increment, sync, dummy_sync_state_,
+                      osc2_buffer_);
+      }
     }
   }
 }
