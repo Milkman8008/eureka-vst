@@ -7,7 +7,8 @@ Any file left out falls back to the built-in look.
 
 background.png        Whole window. Design size 1200 x 802; make it 2400 x 1604 for sharp
                       Retina display. Used on every page unless a page has its own:
-background-synth.png, background-mod.png, background-multi.png, background-presets.png
+background-synth.png, background-mod.png, background-seq.png, background-multi.png,
+                      background-presets.png
                       Start from background-template.png (empty window) and put
                       guide-<page>.png (the whole UI) on a layer above to line things up.
                       Panels, labels, knobs and the header controls are drawn by the

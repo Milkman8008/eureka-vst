@@ -82,6 +82,11 @@ ambika_extract_table(AMBIKA_TICKS_PER_STEP "${AMBIKA_ROOT}/controller/part.cc"
 ambika_extract_table(AMBIKA_PHASE_PER_TICK "${AMBIKA_ROOT}/controller/part.cc"
 	"static const prog_uint16_t lfo_phase_increment_per_clock_tick\\[15\\] PROGMEM = {[^}]*};"
 	"lfo_phase_increment_per_clock_tick")
+ambika_extract_table(AMBIKA_ARP_PATTERNS "${AMBIKA_ROOT}/controller/resources.cc"
+	"const prog_uint16_t lut_res_arpeggiator_patterns\\[\\] PROGMEM = {[^}]*};"
+	"lut_res_arpeggiator_patterns")
+string(REPLACE "lut_res_arpeggiator_patterns[]" "arpeggiator_patterns[kNumArpeggiatorPatterns]"
+	AMBIKA_ARP_PATTERNS "${AMBIKA_ARP_PATTERNS}")
 string(REPLACE "static const" "const" AMBIKA_TICKS_PER_STEP "${AMBIKA_TICKS_PER_STEP}")
 string(REPLACE "static const" "const" AMBIKA_PHASE_PER_TICK "${AMBIKA_PHASE_PER_TICK}")
 # The last entry is 65536, which wraps to 0 in the firmware's 16-bit table.
@@ -108,6 +113,8 @@ ${AMBIKA_TICKS_PER_STEP}
 
 ${AMBIKA_PHASE_PER_TICK}
 
+${AMBIKA_ARP_PATTERNS}
+
 }  // namespace plugin
 }  // namespace ambika
 ")
@@ -128,6 +135,8 @@ add_library(ambika_engine STATIC
 	engine/controller_tables.h
 	engine/engine.cc
 	engine/engine.h
+	engine/filter_models.cc
+	engine/filter_models.h
 	engine/part.cc
 	engine/part.h
 	engine/parameters.cc
@@ -138,6 +147,11 @@ add_library(ambika_engine STATIC
 	engine/surge_filter.cc
 	engine/surge_filter.h
 	engine/resampler.cc
+	engine/ripples_filter.cc
+	engine/ripples_filter.h
+	engine/ripples/aafilter.hpp
+	engine/ripples/ripples_core.h
+	engine/ripples/sos.hpp
 	engine/resampler.h
 	engine/voice_card.cc
 	engine/voice_card.h
@@ -294,6 +308,7 @@ if(AMBIKA_BUILD_PLUGIN)
 		source/Skin.cpp
 		source/Skin.h
 		source/PluginEditor.cpp
+		source/SequencerPage.cpp
 		source/PluginEditor.h
 		source/PluginProcessor.cpp
 		source/PluginProcessor.h)
@@ -342,6 +357,7 @@ if(AMBIKA_BUILD_PLUGIN)
 			source/Controls.cpp
 			source/EurekaLookAndFeel.cpp
 			source/PluginEditor.cpp
+			source/SequencerPage.cpp
 			source/PluginParameters.cpp
 			source/PluginProcessor.cpp
 			source/PresetBrowser.cpp
@@ -373,6 +389,7 @@ if(AMBIKA_BUILD_PLUGIN)
 			source/PresetBrowser.cpp
 			source/PresetManager.cpp
 			source/PluginEditor.cpp
+			source/SequencerPage.cpp
 			source/PluginProcessor.cpp
 			source/Skin.cpp)
 		target_include_directories(ambika_editor_snapshot PRIVATE source)

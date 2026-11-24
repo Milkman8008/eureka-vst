@@ -22,7 +22,7 @@ namespace ambika_plugin
         enum ObjectType
         {
             kPatch = 0,     // 112 bytes, struct Patch
-            kSequence = 1,  // 72 bytes (not used by eureka!)
+            kSequence = 1,  // 72 bytes: arpeggiator settings and sequences
             kProgram = 2,   // never stored as such: patch + part
             kMulti = 3,     // 56 bytes, struct MultiData
             kPart = 4,      // 84 bytes, struct PartData
@@ -55,11 +55,17 @@ namespace ambika_plugin
         juce::Result parseFile (const juce::File& file, Bundle& out);
 
         // File patterns for choosers.
-        inline constexpr const char* kFilePatterns = "*.pat;*.pro;*.mul;*.syx;*.PAT;*.PRO;*.MUL;*.SYX";
+        inline constexpr const char* kFilePatterns = "*.pat;*.pro;*.mul;*.seq;*.syx;*.PAT;*.PRO;*.MUL;*.SEQ;*.SYX";
 
         // Engine parameter values (engine table order) for a patch and,
         // optionally, part settings. Values not covered keep their defaults
         // (e.g. pan, the filter model: Ambika patches use the Ambika SVF).
+        // Includes the arpeggiator / sequencer settings and steps.
         std::vector<int> toEngineValues (const uint8_t* patch, const uint8_t* part);
+
+        // The arpeggiator / sequencer parameters in a sequence object (.SEQ),
+        // as (engine parameter index, value) pairs. A sequence has no
+        // arp/seq mode, so that is not among them.
+        std::vector<std::pair<int, int>> sequenceValues (const uint8_t* sequence);
     }
 }

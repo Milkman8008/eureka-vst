@@ -15,6 +15,16 @@ Options > Audio/MIDI Settings.
 This build is not code-signed. If Windows SmartScreen shows "Windows
 protected your PC", click "More info" and then "Run anyway".
 
+WINDOW SIZE
+Drag the bottom-right corner, or right-click an empty part of the window
+background to choose a size (60% to 200%). The size is saved with your
+project.
+
+SEPARATE OUTPUTS (VST3)
+Each voice can play on its own stereo output ("Voice 1" to "Voice 6"): set
+its Output to "own output" on the Multi page and enable that output in your
+DAW.
+
 Presets are saved in Documents\eureka\presets.
 
 User guide: https://github.com/Milkman8008/eureka-vst

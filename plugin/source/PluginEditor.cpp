@@ -1,6 +1,7 @@
 #include "PluginEditor.h"
 
 #include "PresetBrowser.h"
+#include "SequencerPage.h"
 #include "Skin.h"
 
 namespace ambika_plugin
@@ -326,8 +327,8 @@ namespace ambika_plugin
             g.setColour (Palette::faintText);
             g.setFont (juce::Font (eurekaFont (11.0f)));
             g.drawFittedText ("Each modifier combines two sources into a new one (mod. 1 to mod. 4), "
-                              "usable in the matrix.\n\nSeq. 1/2 and arp sources stay at zero: the sequencer "
-                              "and arpeggiator are not part of this version.",
+                              "usable in the matrix.\n\nSeq. 1 and seq. 2 follow the step sequences on the Seq "
+                              "page, and arp the arpeggiator rhythm (255 on its lit steps).",
                               juce::Rectangle<int> (16, kTableTop + ambika::kNumModifiers * kRowHeight + 16,
                                                     modifiers->getWidth() - 32, 90),
                               juce::Justification::topLeft, 6);
@@ -362,8 +363,8 @@ namespace ambika_plugin
     //==============================================================================
     namespace
     {
-        constexpr int kCardHeight = 200;
-        constexpr int kSplitRowHeight = 46;
+        constexpr int kCardHeight = 240;
+        constexpr int kSplitRowHeight = 45;
         constexpr int kSplitTop = 52;
         constexpr int kSplitLow = 150, kSplitHigh = 318, kSplitRange = 486;
         constexpr int kCardTop = 34;
@@ -376,6 +377,7 @@ namespace ambika_plugin
         for (int v = 0; v < kNumVoices; ++v)
         {
             owners[(size_t) v] = &control (*cards, voicePartId (v), "Plays", ControlStyle::Combo, false);
+            outputs[(size_t) v] = &control (*cards, voiceOutputId (v), "Output", ControlStyle::Combo, false);
             auto& edit = editButtons[(size_t) v];
             edit = std::make_unique<juce::TextButton> ("Edit part");
             edit->onClick = [this, editPart, v]
@@ -417,12 +419,13 @@ namespace ambika_plugin
     void MultiPage::resized()
     {
         auto area = getLocalBounds().reduced (kMargin);
-        cards->setBounds (area.removeFromTop (kCardHeight + 76));
+        cards->setBounds (area.removeFromTop (kCardHeight + 72));
         for (int v = 0; v < kNumVoices; ++v)
         {
             auto card = cardBounds (v).reduced (12, 0);
-            owners[(size_t) v]->setBounds (card.getX(), card.getY() + 104, card.getWidth(), 44);
-            editButtons[(size_t) v]->setBounds (card.getX(), card.getY() + kCardHeight - 46, card.getWidth(), 28);
+            owners[(size_t) v]->setBounds (card.getX(), card.getY() + 96, card.getWidth(), 44);
+            outputs[(size_t) v]->setBounds (card.getX(), card.getY() + 144, card.getWidth(), 44);
+            editButtons[(size_t) v]->setBounds (card.getX(), card.getY() + kCardHeight - 34, card.getWidth(), 28);
         }
         area.removeFromTop (12);
         auto bottom = area;
@@ -479,15 +482,26 @@ namespace ambika_plugin
             g.setColour (assigned ? colour : Palette::faintText);
             g.setFont (juce::Font (eurekaFont (15.0f, juce::Font::bold)));
             g.drawFittedText (assigned ? shownNames[owner] : juce::String ("off"),
-                              juce::Rectangle<float> (card.getX() + 12.0f, card.getY() + 58.0f, card.getWidth() - 24.0f, 36.0f)
+                              juce::Rectangle<float> (card.getX() + 12.0f, card.getY() + 58.0f, card.getWidth() - 24.0f, 34.0f)
                                   .toNearestInt(),
                               juce::Justification::topLeft, 2);
+
+            // Where the card is heard; "own output" needs the host to enable
+            // the card's bus, until then it plays on the main output.
+            const int routing = shownRouting[(size_t) v];
+            g.setFont (juce::Font (eurekaFont (10.5f)));
+            g.setColour (routing == 1 ? colour : routing == 2 ? juce::Colour (0xfff0a35e) : Palette::faintText);
+            g.drawText (routing == 1 ? "heard on Voice " + juce::String (v + 1) + " out"
+                        : routing == 2 ? juce::String ("bus off in host: on main")
+                                       : juce::String ("heard on main out"),
+                        juce::Rectangle<float> (card.getX() + 12.0f, card.getY() + 189.0f, card.getWidth() - 24.0f, 14.0f),
+                        juce::Justification::centredLeft, true);
         }
         g.setColour (Palette::faintText);
         g.setFont (juce::Font (eurekaFont (11.5f)));
-        g.drawText ("Choose the part (patch) each voice card plays. Cards on the same part share its patch; "
-                    "a card set to off is silent.",
-                    cards->content().withTrimmedTop (kCardHeight + kCardTop - 10).withHeight (22), juce::Justification::centred);
+        g.drawText ("Choose the part (patch) each voice card plays, and its output. Cards on the same part "
+                    "share its patch; a card set to off is silent.",
+                    cards->content().withTrimmedTop (kCardHeight + kCardTop - 16).withHeight (20), juce::Justification::centred);
     }
 
     void MultiPage::paintAllocation (juce::Graphics& g)
@@ -571,9 +585,13 @@ namespace ambika_plugin
         {
             const auto level = processor.voiceLevel (v);
             const auto owner = processor.voiceOwner (v);
-            changed |= level != shownLevels[(size_t) v] || owner != shownOwners[(size_t) v];
+            const bool wantsOwn = juce::roundToInt (state.getRawParameterValue (voiceOutputId (v))->load()) == 1;
+            const int routing = ! wantsOwn ? 0 : processor.voiceBusEnabled (v) ? 1 : 2;
+            changed |= level != shownLevels[(size_t) v] || owner != shownOwners[(size_t) v]
+                       || routing != shownRouting[(size_t) v];
             shownLevels[(size_t) v] = level;
             shownOwners[(size_t) v] = owner;
+            shownRouting[(size_t) v] = routing;
         }
         for (int part = 0; part < kNumParts; ++part)
         {
@@ -612,6 +630,19 @@ namespace ambika_plugin
         Palette::Theme loadThemePreference()
         {
             return openSettings()->getValue ("theme", "dark") == "light" ? Palette::Theme::Light : Palette::Theme::Dark;
+        }
+
+        // The window scale last used, for projects that have none yet.
+        float loadScalePreference()
+        {
+            return (float) openSettings()->getDoubleValue ("windowScale", 1.0);
+        }
+
+        void saveScalePreference (float scale)
+        {
+            auto settings = openSettings();
+            settings->setValue ("windowScale", scale);
+            settings->saveIfNeeded();
         }
 
         void saveThemePreference (Palette::Theme theme)
@@ -850,15 +881,17 @@ namespace ambika_plugin
               browser (presetContext, dialog),
               synth (p.parameters()),
               modulation (p.parameters()),
+              sequencer (p.parameters(), p),
               multi (p.parameters(), p, [showPageFn, editPartFn] (int part) { editPartFn (part); showPageFn (0); }),
               output (p.parameters(), kOutputGainId, {}, ControlStyle::Bar, false)
         {
-            const char* names[] = { "Synth", "Mod", "Multi" };
-            for (int i = 0; i < 3; ++i)
+            const char* names[] = { "Synth", "Mod", "Seq", "Multi" };
+            for (int i = 0; i < (int) pageButtons.size(); ++i)
             {
                 auto& b = pageButtons[(size_t) i];
                 b.setButtonText (names[i]);
-                b.onClick = [showPageFn, i] { showPageFn (i); };
+                const int index = kButtonPages[(size_t) i];
+                b.onClick = [showPageFn, index] { showPageFn (index); };
                 addAndMakeVisible (b);
             }
             for (int i = 0; i < kNumParts; ++i)
@@ -873,6 +906,7 @@ namespace ambika_plugin
             }
             addAndMakeVisible (synth);
             addChildComponent (modulation);
+            addChildComponent (sequencer);
             addChildComponent (multi);
             addChildComponent (browser);
             addAndMakeVisible (output);
@@ -996,11 +1030,11 @@ namespace ambika_plugin
         void resized() override
         {
             auto header = getLocalBounds().removeFromTop (kHeaderHeight).reduced (16, 16);
-            header.removeFromLeft (258);
+            header.removeFromLeft (232);
             for (auto& b : pageButtons)
             {
-                b.setBounds (header.removeFromLeft (70));
-                header.removeFromLeft (6);
+                b.setBounds (header.removeFromLeft (58));
+                header.removeFromLeft (4);
             }
             auto right = header;
             themeToggle.setBounds (right.removeFromRight (32));
@@ -1021,6 +1055,7 @@ namespace ambika_plugin
             const auto pageArea = getLocalBounds().withTrimmedTop (kPagesTop);
             synth.setBounds (pageArea);
             modulation.setBounds (pageArea);
+            sequencer.setBounds (pageArea);
             multi.setBounds (pageArea);
             browser.setBounds (pageArea);
             dialog.setBounds (getLocalBounds());
@@ -1035,11 +1070,12 @@ namespace ambika_plugin
             modulation.setVisible (index == 1);
             multi.setVisible (index == 2);
             browser.setVisible (index == 3);
+            sequencer.setVisible (index == 4);
             bar.setBrowserOpen (index == 3);
-            if (currentSkin().pageBackgrounds[(size_t) juce::jlimit (0, 3, index)].isValid())
+            if (currentSkin().pageBackgrounds[(size_t) juce::jlimit (0, 4, index)].isValid())
                 repaint();  // Page-specific background.
-            for (int i = 0; i < 3; ++i)
-                pageButtons[(size_t) i].setToggleState (i == index, juce::dontSendNotification);
+            for (size_t i = 0; i < pageButtons.size(); ++i)
+                pageButtons[i].setToggleState (kButtonPages[i] == index, juce::dontSendNotification);
         }
 
         // After the highlight colours change.
@@ -1059,13 +1095,14 @@ namespace ambika_plugin
                 partButtons[(size_t) i].setToggleState (i == part, juce::dontSendNotification);
             synth.bindPart (part);
             modulation.bindPart (part);
+            sequencer.bindPart (part);
             if (browser.isVisible())
                 browser.repaint();
         }
 
         void poll()
         {
-            Page* pages[] = { &synth, &modulation, &multi };
+            Page* pages[] = { &synth, &modulation, &sequencer, &multi };
             for (auto* page : pages)
                 if (page->isVisible())
                     page->poll();
@@ -1091,10 +1128,14 @@ namespace ambika_plugin
         juce::String toastText;
         bool toastIsError = false;
         int toastId = 0;
-        std::array<juce::TextButton, 3> pageButtons;
+        // Header tabs, in order, and the page each shows (0 synth, 1 mod,
+        // 2 multi, 3 presets, 4 seq).
+        static constexpr std::array<int, 4> kButtonPages { 0, 1, 4, 2 };
+        std::array<juce::TextButton, 4> pageButtons;
         std::array<juce::TextButton, kNumParts> partButtons;
         SynthPage synth;
         ModulationPage modulation;
+        SequencerPage sequencer;
         MultiPage multi;
         ParameterControl output;
         ThemeToggle themeToggle;
@@ -1117,15 +1158,58 @@ namespace ambika_plugin
         buildContent (0);
 
         setResizable (true, true);
-        setResizeLimits (designWidth * 6 / 10, designHeight * 6 / 10, designWidth * 2, designHeight * 2);
+        setResizeLimits (juce::roundToInt (designWidth * minScale), juce::roundToInt (designHeight * minScale),
+                         juce::roundToInt (designWidth * maxScale), juce::roundToInt (designHeight * maxScale));
         getConstrainer()->setFixedAspectRatio ((double) designWidth / designHeight);
-        setSize (designWidth, designHeight);
+        // The project's size, else the size last used anywhere.
+        float scale = audioProcessor.editorScale();
+        if (scale <= 0.0f)
+            scale = loadScalePreference();
+        scale = juce::jlimit (minScale, maxScale, scale);
+        openedScale = scale;
+        setSize (juce::roundToInt (designWidth * scale), juce::roundToInt (designHeight * scale));
         startTimerHz (30);
+    }
+
+    void AmbikaAudioProcessorEditor::setScale (float scale)
+    {
+        scale = juce::jlimit (minScale, maxScale, scale);
+        setSize (juce::roundToInt (designWidth * scale), juce::roundToInt (designHeight * scale));
+    }
+
+    void AmbikaAudioProcessorEditor::mouseDown (const juce::MouseEvent& e)
+    {
+        if (e.eventComponent != content.get() || ! e.mods.isPopupMenu())
+            return;
+        juce::PopupMenu menu;
+        menu.addSectionHeader ("Window size");
+        const float current = (float) getWidth() / (float) designWidth;
+        for (int percent : { 60, 75, 90, 100, 110, 125, 150, 175, 200 })
+        {
+            const float scale = (float) percent / 100.0f;
+            menu.addItem (juce::String (percent) + "%", true, std::abs (scale - current) < 0.005f,
+                          [safe = juce::Component::SafePointer<AmbikaAudioProcessorEditor> (this), scale]
+                          {
+                              if (safe != nullptr)
+                                  safe->setScale (scale);
+                          });
+        }
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition());
+    }
+
+    void AmbikaAudioProcessorEditor::paint (juce::Graphics& g)
+    {
+        // Margins when the host gives the window a shape other than the
+        // design's (the content keeps its proportions, centred).
+        g.fillAll (Palette::background);
     }
 
     AmbikaAudioProcessorEditor::~AmbikaAudioProcessorEditor()
     {
         stopTimer();
+        // Only a size the user chose becomes the preference.
+        if (const float scale = audioProcessor.editorScale(); scale > 0.0f && std::abs (scale - openedScale) > 0.001f)
+            saveScalePreference (scale);
         delete highlightBox.getComponent();
         content.reset();
         setLookAndFeel (nullptr);
@@ -1135,8 +1219,15 @@ namespace ambika_plugin
     {
         if (content == nullptr || getWidth() <= 0)
             return;  // Not sized yet (constructor).
-        const float scale = (float) getWidth() / (float) designWidth;
-        content->setTransform (juce::AffineTransform::scale (scale));
+        // Fit both dimensions and centre: some hosts (several on Windows)
+        // resize the window without asking the plug-in's constrainer, and
+        // scaling by the width alone then cuts off the bottom.
+        const float scale = juce::jmin ((float) getWidth() / (float) designWidth,
+                                        (float) getHeight() / (float) designHeight);
+        const float x = ((float) getWidth() - (float) designWidth * scale) * 0.5f;
+        const float y = ((float) getHeight() - (float) designHeight * scale) * 0.5f;
+        content->setTransform (juce::AffineTransform::scale (scale).translated (x, y));
+        audioProcessor.setEditorScale (scale);
     }
 
     void AmbikaAudioProcessorEditor::showPage (int index)
@@ -1168,6 +1259,9 @@ namespace ambika_plugin
             [this] (juce::Component& button) { showHighlightEditor (button); });
         content->setSize (designWidth, designHeight);
         addAndMakeVisible (*content);
+        // Right-click on the window background: a menu of sizes, for hosts
+        // where dragging the corner is awkward.
+        content->addMouseListener (this, false);
         editPart (audioProcessor.editedPart());
         showPage (page);
         resized();

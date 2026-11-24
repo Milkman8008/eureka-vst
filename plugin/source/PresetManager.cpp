@@ -420,8 +420,20 @@ namespace ambika_plugin
             if (settings == nullptr && o.type == kPart) settings = &o;
         }
         if (patch == nullptr)
-            return juce::Result::fail ("\"" + bundle.name + "\" has no patch (eureka! has no sequencer to load "
-                                       "sequences into).");
+        {
+            // A sequence (.SEQ): the arpeggiator settings and sequences go
+            // into the part, its sound stays.
+            const Object* sequence = bundle.find (kSequence, 0);
+            for (const auto& o : bundle.objects)
+                if (sequence == nullptr && o.type == kSequence) sequence = &o;
+            if (sequence == nullptr)
+                return juce::Result::fail ("\"" + bundle.name + "\" has no patch or sequence.");
+            auto values = captureValues (part);
+            for (const auto& [index, value] : sequenceValues (sequence->data.data()))
+                values[(size_t) index] = value;
+            applyValues (part, values);
+            return juce::Result::ok();
+        }
         applyValues (part, toEngineValues (patch->data.data(), settings != nullptr ? settings->data.data() : nullptr));
         remember (part, bundle.name);
         return juce::Result::ok();
@@ -454,8 +466,12 @@ namespace ambika_plugin
         {
             juce::Array<juce::File> inputs;
             if (item.isDirectory())
+            {
+                // Sequences are not sounds: folders are scanned without them.
                 for (const auto& entry : juce::RangedDirectoryIterator (item, true, kFilePatterns, juce::File::findFiles))
-                    inputs.add (entry.getFile());
+                    if (! entry.getFile().hasFileExtension ("seq"))
+                        inputs.add (entry.getFile());
+            }
             else
                 inputs.add (item);
 
@@ -483,7 +499,8 @@ namespace ambika_plugin
                     if (settings == nullptr && o.type == kPart) settings = &o;
                 }
                 if (patch == nullptr)
-                    errors.add (file.getFileName() + ": no patch (sequences are not imported)");
+                    errors.add (file.getFileName() + ": no patch. A sequence is not a sound: load it into a "
+                                                     "part instead (it sets the part's arpeggiator and sequences).");
                 else
                     add (bundle.name, patch, settings, file.getFileName());
             }

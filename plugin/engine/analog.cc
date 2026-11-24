@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 
+#include "filter_models.h"
+
 namespace ambika {
 namespace plugin {
 
@@ -38,6 +40,7 @@ void AnalogVoice::Init(double sample_rate, int oversampling) {
   dc_coefficient_ = static_cast<float>(std::exp(-2.0 * kPi * 8.0 / sample_rate_));
   // One control block (40 native samples) is one Surge coefficient block.
   surge_.Init(sample_rate_, 40 * oversampling_);
+  ripples_.Init(sample_rate_);
   Reset();
 }
 
@@ -50,6 +53,7 @@ void AnalogVoice::Reset() {
   s1_ = s2_ = 0.0f;
   dc_x_ = dc_y_ = 0.0f;
   surge_.Reset();
+  ripples_.Reset();
   last_model_ = 0;
 }
 
@@ -68,9 +72,11 @@ void AnalogVoice::Process(const uint8_t* samples, int num_samples,
     // Switching between filter engines: clear both so nothing rings over.
     s1_ = s2_ = 0.0f;
     surge_.Reset();
+    ripples_.Reset();
     last_model_ = filter_model;
   }
-  if (filter_model != 0 && num_samples * oversampling_ <= 256) {
+  const bool ripples = filter_model == RipplesFilterModel();
+  if (filter_model != 0 && !ripples && num_samples * oversampling_ <= 256) {
     ProcessSurge(samples, num_samples, cutoff, resonance, vca, crush,
                  filter_model, filter_variant, out);
     return;
@@ -98,6 +104,17 @@ void AnalogVoice::Process(const uint8_t* samples, int num_samples,
     const float k = 1.41f - 1.39f * r;
     const float denominator = 1.0f / (1.0f + g * (k + g));
     const float gain = vca_cv_ * (1.0f / 255.0f);
+
+    if (ripples) {
+      for (int j = 0; j < oversampling_; ++j) {
+        const float y = ripples_.Process(dac_value_, fc, r, filter_variant) * gain;
+        const float dc = y - dc_x_ + dc_coefficient_ * dc_y_;
+        dc_x_ = y;
+        dc_y_ = dc;
+        *out++ += dc;
+      }
+      continue;
+    }
 
     for (int j = 0; j < oversampling_; ++j) {
       const float x = dac_value_;

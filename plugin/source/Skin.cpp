@@ -8,7 +8,7 @@ namespace ambika_plugin
 {
     namespace
     {
-        const char* const kPageNames[] = { "synth", "mod", "multi", "presets" };
+        const char* const kPageNames[] = { "synth", "mod", "multi", "presets", "seq" };
 
         // Reads a skin file from the user folder, else from the built-in skin.
         juce::MemoryBlock readSkinFile (const juce::String& name, juce::StringArray& sources)

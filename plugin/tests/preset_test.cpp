@@ -194,6 +194,20 @@ int main()
     }
     check (matches, "every patch parameter matches the program's bytes");
     check (get (processor, "p2_filter_model") == 0.0f, "Ambika programs use the Ambika SVF");
+    if (rawPart != nullptr)
+    {
+        // The program's arpeggiator settings and sequences come along.
+        const uint8_t* p = rawPart->data.data();
+        auto value = [&] (const char* id) { return juce::roundToInt (get (processor, juce::String ("p2_") + id)); };
+        const bool sequences = value ("seq1_step3") == p[16 + 2] && value ("seq2_step5") == p[16 + 16 + 4]
+                               && value ("pattern_note2") == (p[16 + 32 + 2] & 0x7f)
+                               && value ("pattern_gate2") == (p[16 + 32 + 2] >> 7)
+                               && value ("pattern_velocity2") == (p[16 + 33 + 2] & 0x7f)
+                               && value ("arp_divider") == juce::jmin (14, (int) p[11])
+                               && value ("arp_mode") == p[7]
+                               && value ("seq1_length") == juce::jlimit (1, 16, (int) p[12]);
+        check (sequences, "the program's arpeggiator settings and sequences load too");
+    }
     check (presets.rename (factory[5].file, "x").failed() && presets.remove (factory[5].file).failed(),
            "factory presets cannot be renamed or deleted");
 
@@ -231,6 +245,32 @@ int main()
     static_cast<uint8_t*> (corrupt.getData())[20] ^= 0x01;
     syxFile.replaceWithData (corrupt.getData(), corrupt.getSize());
     check (presets.load (3, syxFile).failed(), "a SysEx dump with a bad checksum is rejected");
+
+    // A sequence dump (.SEQ contents): PartData bytes 8..79. It sets part
+    // 4's arpeggiator and sequences and leaves its sound and mode alone.
+    {
+        set (processor, "p4_arp_mode", 1.0f);
+        std::vector<uint8_t> sequence (kSequenceSize, 0);
+        sequence[0] = 2;   // direction: up&down
+        sequence[1] = 3;   // octaves
+        sequence[3] = 8;   // step 1/8
+        sequence[4] = 7;   // seq 1 length
+        sequence[6] = 24;  // pattern length (clamped to 16)
+        sequence[8 + 0] = 200;               // seq 1 step 1
+        sequence[8 + 32 + 2] = 0x80 | 64;    // pattern step 2: gate, note 64
+        sequence[8 + 33 + 2] = 0x80 | 90;    // tie, velocity 90
+        const float cutoff = get (processor, "p4_filter_cutoff");
+        syxFile.replaceWithData (sysex (kSequence + 1, 0, sequence).getData(), sequence.size() * 2 + 11);
+        result = presets.load (3, syxFile);
+        check (result.wasOk() && get (processor, "p4_arp_direction") == 2.0f && get (processor, "p4_arp_octave") == 3.0f
+                   && get (processor, "p4_arp_divider") == 8.0f && get (processor, "p4_seq1_length") == 7.0f
+                   && get (processor, "p4_pattern_length") == 16.0f && get (processor, "p4_seq1_step1") == 200.0f
+                   && get (processor, "p4_pattern_note2") == 64.0f && get (processor, "p4_pattern_gate2") == 1.0f
+                   && get (processor, "p4_pattern_velocity2") == 90.0f && get (processor, "p4_pattern_legato2") == 1.0f,
+               "load an Ambika sequence dump into a part (" + result.getErrorMessage() + ")");
+        check (get (processor, "p4_arp_mode") == 1.0f && get (processor, "p4_filter_cutoff") == cutoff,
+               "a sequence leaves the part's sound and arp mode alone");
+    }
 
     // A multi (.MUL): part 1 = 000.PRO on voices 1,3,5 below C4; part 2 =
     // 005.PRO on voices 2,4,6 from C4.

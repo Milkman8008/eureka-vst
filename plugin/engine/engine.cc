@@ -28,7 +28,7 @@ void Engine::Init(double host_sample_rate) {
     analog_[i].Init(internal_rate, kOversampling);
   }
   for (uint8_t i = 0; i < kNumParts; ++i) {
-    parts_[i].Init(voices_);
+    parts_[i].Init(voices_, i);
     mappings_[i] = PartMapping();
   }
   uint8_t all_to_part_1[kNumVoices];
@@ -38,6 +38,10 @@ void Engine::Init(double host_sample_rate) {
 
   resampler_left_.Init(internal_rate, host_sample_rate);
   resampler_right_.Init(internal_rate, host_sample_rate);
+  for (auto& pair : voice_resamplers_) {
+    for (auto& r : pair) r.Init(internal_rate, host_sample_rate);
+  }
+  direct_mask_ = 0;
   latency_samples_ = static_cast<int>(std::lround(
       resampler_left_.latency_in_input_samples() * host_sample_rate / internal_rate));
   for (float& p : pan_) p = 0.5f;
@@ -48,7 +52,39 @@ void Engine::Init(double host_sample_rate) {
   age_counter_ = 0;
   ResetAllocation();
   lfo_refresh_cycle_ = 0;
-  clock_accumulator_ = 0.0;
+  song_ticks_ = 0.0;
+  next_tick_ = 0;
+  transport_playing_ = false;
+}
+
+void Engine::SetTransport(bool playing, double ppq_position) {
+  const double ticks = ppq_position * 24.0;
+  if (playing && !transport_playing_) {
+    // Start: the sequencers take their place at the song position.
+    song_ticks_ = ticks;
+    next_tick_ = static_cast<int64_t>(std::ceil(ticks - 1e-9));
+    for (uint8_t i = 0; i < kNumParts; ++i) {
+      parts_[i].set_transport_running(true);
+      parts_[i].Start(static_cast<uint32_t>(next_tick_ < 0 ? 0 : next_tick_));
+    }
+  } else if (playing) {
+    // A jump or loop: start again from the new position. The engine runs
+    // ahead of the output by its latency, a fraction of a tick, which this
+    // tolerance absorbs.
+    if (std::fabs(ticks - song_ticks_) > 1.0) {
+      song_ticks_ = ticks;
+      next_tick_ = static_cast<int64_t>(std::ceil(ticks - 1e-9));
+      for (uint8_t i = 0; i < kNumParts; ++i) {
+        parts_[i].Start(static_cast<uint32_t>(next_tick_ < 0 ? 0 : next_tick_));
+      }
+    }
+  } else if (transport_playing_) {
+    for (uint8_t i = 0; i < kNumParts; ++i) {
+      parts_[i].set_transport_running(false);
+      parts_[i].Stop();
+    }
+  }
+  transport_playing_ = playing;
 }
 
 void Engine::SetPartMapping(uint8_t part, const PartMapping& mapping) {
@@ -98,6 +134,18 @@ void Engine::SetVoiceAssignment(const uint8_t* voice_parts) {
   }
 }
 
+void Engine::SetDirectOutputs(uint8_t mask) {
+  mask &= (1 << kNumVoices) - 1;
+  for (uint8_t v = 0; v < kNumVoices; ++v) {
+    if ((mask & (1 << v)) && !(direct_mask_ & (1 << v))) {
+      // Joins from silence, aligned with the main output.
+      voice_resamplers_[v][0].SyncTo(resampler_left_);
+      voice_resamplers_[v][1].SyncTo(resampler_left_);
+    }
+  }
+  direct_mask_ = mask;
+}
+
 void Engine::SetVoiceMode(uint8_t mode, uint8_t unison) {
   if (mode >= VOICE_MODE_LAST) mode = VOICE_MODE_PER_PART;
   if (unison < 1) unison = 1;
@@ -109,6 +157,9 @@ void Engine::SetVoiceMode(uint8_t mode, uint8_t unison) {
   }
   voice_mode_ = mode;
   unison_ = unison;
+  for (uint8_t i = 0; i < kNumParts; ++i) {
+    parts_[i].set_note_sink(mode == VOICE_MODE_PER_PART ? nullptr : this);
+  }
 }
 
 void Engine::ResetAllocation() {
@@ -133,20 +184,55 @@ void Engine::ReleaseAllocatedVoice(uint8_t v) {
   voice_age_[v] = ++age_counter_;
 }
 
-void Engine::AllocatedNoteOn(uint8_t channel, uint8_t note, uint8_t velocity) {
-  // A key pressed again while still sounding: release it first.
+uint8_t Engine::DirectCards(uint8_t channel, uint8_t note) const {
+  uint8_t mask = 0;
   for (uint8_t v = 0; v < kNumVoices; ++v) {
-    if (note_voices_[channel][note] & (1 << v)) ReleaseAllocatedVoice(v);
+    const uint8_t owner = voice_parts_[v];
+    if (owner < kNumParts && mappings_[owner].receive_channel(channel) &&
+        mappings_[owner].accept_note(note) && !parts_[owner].sequencing()) {
+      mask |= 1 << v;
+    }
   }
+  return mask;
+}
 
-  // Voicecards that belong to a part accepting this note.
+void Engine::ReleaseSlotNote(uint8_t slot, uint8_t note) {
+  const uint8_t mask = note_voices_[slot][note];
+  for (uint8_t v = 0; v < kNumVoices; ++v) {
+    if (mask & (1 << v)) ReleaseAllocatedVoice(v);
+  }
+}
+
+void Engine::PartNoteOn(uint8_t part, uint8_t note, uint8_t velocity) {
+  uint8_t allowed = 0;
+  for (uint8_t v = 0; v < kNumVoices; ++v) {
+    if (voice_parts_[v] == part) allowed |= 1 << v;
+  }
+  AllocatedNoteOn(kPartSlot + part, note & 0x7f, velocity, allowed);
+}
+
+void Engine::PartNoteOff(uint8_t part, uint8_t note) {
+  ReleaseSlotNote(kPartSlot + part, note & 0x7f);
+}
+
+void Engine::PartAllNotesOff(uint8_t part) {
+  for (uint8_t v = 0; v < kNumVoices; ++v) {
+    if (voice_note_[v] != 0xff && voice_channel_[v] == kPartSlot + part) {
+      ReleaseAllocatedVoice(v);
+    }
+  }
+}
+
+void Engine::AllocatedNoteOn(uint8_t slot, uint8_t note, uint8_t velocity, uint8_t allowed) {
+  // A key pressed again while still sounding: release it first.
+  ReleaseSlotNote(slot, note);
+
+  // The allowed voicecards, in cyclic order if needed.
   uint8_t candidates[kNumVoices];
   uint8_t num_candidates = 0;
   for (uint8_t n = 0; n < kNumVoices; ++n) {
     const uint8_t v = voice_mode_ == VOICE_MODE_CYCLIC ? (cyclic_next_ + n) % kNumVoices : n;
-    const uint8_t owner = voice_parts_[v];
-    if (owner < kNumParts && mappings_[owner].receive_channel(channel) &&
-        mappings_[owner].accept_note(note)) {
+    if ((allowed & (1 << v)) && voice_parts_[v] < kNumParts) {
       candidates[num_candidates++] = v;
     }
   }
@@ -190,11 +276,11 @@ void Engine::AllocatedNoteOn(uint8_t channel, uint8_t note, uint8_t velocity) {
     sustained_ &= ~(1 << v);
     parts_[voice_parts_[v]].PlayVoice(v, note, velocity, k);
     voice_note_[v] = note;
-    voice_channel_[v] = channel;
+    voice_channel_[v] = slot;
     voice_age_[v] = ++age_counter_;
     mask |= 1 << v;
   }
-  note_voices_[channel][note] = mask;
+  note_voices_[slot][note] = mask;
 }
 
 void Engine::NoteOn(uint8_t channel, uint8_t note, uint8_t velocity) {
@@ -205,7 +291,17 @@ void Engine::NoteOn(uint8_t channel, uint8_t note, uint8_t velocity) {
     return;
   }
   if (voice_mode_ != VOICE_MODE_PER_PART) {
-    AllocatedNoteOn(channel, note, velocity);
+    // Arpeggiating parts take the key; the others play it on their cards.
+    for (uint8_t i = 0; i < kNumParts; ++i) {
+      if (parts_[i].sequencing() && parts_[i].num_voices() &&
+          mappings_[i].receive_channel(channel) && mappings_[i].accept_note(note)) {
+        parts_[i].NoteOn(note, velocity);
+      }
+    }
+    const uint8_t direct = DirectCards(channel, note);
+    if (direct) {
+      AllocatedNoteOn(channel, note, velocity, direct);
+    }
     return;
   }
   for (uint8_t i = 0; i < kNumParts; ++i) {
@@ -228,6 +324,13 @@ void Engine::NoteOff(uint8_t channel, uint8_t note) {
         ReleaseAllocatedVoice(v);
       }
     }
+    // Every part that may hold the key (its mode may have changed since).
+    for (uint8_t i = 0; i < kNumParts; ++i) {
+      if (parts_[i].sequencing() && mappings_[i].receive_channel(channel) &&
+          mappings_[i].accept_note(note)) {
+        parts_[i].NoteOff(note);
+      }
+    }
     return;
   }
   for (uint8_t i = 0; i < kNumParts; ++i) {
@@ -239,12 +342,16 @@ void Engine::NoteOff(uint8_t channel, uint8_t note) {
 
 void Engine::ControlChange(uint8_t channel, uint8_t controller, uint8_t value) {
   if (controller == 64 && voice_mode_ != VOICE_MODE_PER_PART) {
-    // Sustain pedal for engine-allocated voices.
+    // Sustain pedal for engine-allocated voices; arpeggiating parts hold
+    // their keys themselves.
     sustain_ = value >= 64;
     if (!sustain_) {
       for (uint8_t v = 0; v < kNumVoices; ++v) {
         if (sustained_ & (1 << v)) ReleaseAllocatedVoice(v);
       }
+    }
+    for (uint8_t i = 0; i < kNumParts; ++i) {
+      if (mappings_[i].receive_channel(channel)) parts_[i].ControlChange(controller, value);
     }
     return;
   }
@@ -307,11 +414,12 @@ void Engine::AllSoundOff() {
 void Engine::RenderControlBlock() {
   // Controller side: MIDI clock ticks for synced LFOs, then the part LFOs.
   const double control_rate = kNativeSampleRate / kAudioBlockSize;
-  clock_accumulator_ += tempo_bpm_ * 24.0 / 60.0 / control_rate;
-  while (clock_accumulator_ >= 1.0) {
-    clock_accumulator_ -= 1.0;
+  // Ticks due by the start of this block, then advance the clock.
+  while (static_cast<double>(next_tick_) <= song_ticks_) {
+    ++next_tick_;
     for (uint8_t i = 0; i < kNumParts; ++i) parts_[i].Clock();
   }
+  song_ticks_ += tempo_bpm_ * 24.0 / 60.0 / control_rate;
   ++lfo_refresh_cycle_;
   for (uint8_t i = 0; i < kNumParts; ++i) {
     parts_[i].UpdateLfos(lfo_refresh_cycle_ & 1);
@@ -331,6 +439,15 @@ void Engine::RenderControlBlock() {
                        voice.filter_variant(), voice_block_);
     // Constant-power pan, smoothed (the pan CV updates once per block).
     // 128 is exactly centre; 0 and 255 are hard left and right.
+    const bool direct = direct_mask_ & (1 << i);
+    float* mix_left = block_left_;
+    float* mix_right = block_right_;
+    if (direct) {
+      mix_left = voice_left_[i];
+      mix_right = voice_right_[i];
+      memset(mix_left, 0, sizeof(voice_left_[i]));
+      memset(mix_right, 0, sizeof(voice_right_[i]));
+    }
     const uint8_t pan_cv = voice.pan();
     const float target = pan_cv >= 255 ? 1.0f : static_cast<float>(pan_cv) / 256.0f;
     float pan = pan_[i];
@@ -341,23 +458,39 @@ void Engine::RenderControlBlock() {
       const float gain_left = std::cos(pan * kHalfPi) * kVoiceGain;
       const float gain_right = std::sin(pan * kHalfPi) * kVoiceGain;
       for (int k = s; k < s + 8 && k < n; ++k) {
-        block_left_[k] += voice_block_[k] * gain_left;
-        block_right_[k] += voice_block_[k] * gain_right;
+        mix_left[k] += voice_block_[k] * gain_left;
+        mix_right[k] += voice_block_[k] * gain_right;
       }
     }
     pan_[i] = pan;
+    if (direct) {
+      voice_resamplers_[i][0].Push(mix_left, n);
+      voice_resamplers_[i][1].Push(mix_right, n);
+    }
   }
   resampler_left_.Push(block_left_, n);
   resampler_right_.Push(block_right_, n);
 }
 
-void Engine::Render(float* left, float* right, int num_samples) {
+void Engine::Render(float* left, float* right, int num_samples,
+                    float* const* voice_outputs) {
   for (int i = 0; i < num_samples; ++i) {
     while (!resampler_left_.CanPop()) {
       RenderControlBlock();
     }
     left[i] = resampler_left_.Pop();
     right[i] = resampler_right_.Pop();
+    if (!direct_mask_) continue;
+    for (uint8_t v = 0; v < kNumVoices; ++v) {
+      if (!(direct_mask_ & (1 << v))) continue;
+      // Popped even without a destination, to stay in step with the mix.
+      const float l = voice_resamplers_[v][0].Pop();
+      const float r = voice_resamplers_[v][1].Pop();
+      if (voice_outputs != nullptr && voice_outputs[2 * v] != nullptr) {
+        voice_outputs[2 * v][i] = l;
+        voice_outputs[2 * v + 1][i] = r;
+      }
+    }
   }
 }
 

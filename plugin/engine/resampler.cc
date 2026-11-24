@@ -61,6 +61,12 @@ void Resampler::Reset() {
   position_ = static_cast<double>(half_width_);
 }
 
+void Resampler::SyncTo(const Resampler& other) {
+  std::fill(buffer_.begin(), buffer_.end(), 0.0f);
+  written_ = other.written_;
+  position_ = other.position_;
+}
+
 void Resampler::Push(const float* samples, int count) {
   for (int i = 0; i < count; ++i) {
     buffer_[static_cast<size_t>(written_ & (kBufferSize - 1))] = samples[i];

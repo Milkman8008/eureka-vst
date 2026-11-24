@@ -123,6 +123,8 @@ namespace ambika_plugin
         };
         std::array<SplitRow, kNumParts> splitRows;
         std::array<ParameterControl*, kNumVoices> owners {};
+        std::array<ParameterControl*, kNumVoices> outputs {};
+        std::array<int, kNumVoices> shownRouting {};  // 0 main, 1 own output, 2 own output but bus off
         std::array<std::unique_ptr<juce::TextButton>, kNumVoices> editButtons;
         ParameterControl* voiceMode = nullptr;
         ParameterControl* unison = nullptr;
@@ -140,13 +142,19 @@ namespace ambika_plugin
         ~AmbikaAudioProcessorEditor() override;
 
         void resized() override;
+        void paint (juce::Graphics&) override;
+        void mouseDown (const juce::MouseEvent&) override;
+
+        // Window scale, 0.6 .. 2 (1 = design size).
+        void setScale (float scale);
+        static constexpr float minScale = 0.6f, maxScale = 2.0f;
 
         // Design size; the window scales this uniformly.
         static constexpr int designWidth = 1200;
         static constexpr int designHeight = 802;
 
         // For tools and tests.
-        void showPage (int index);  // 0 synth, 1 mod, 2 multi, 3 presets
+        void showPage (int index);  // 0 synth, 1 mod, 2 multi, 3 presets, 4 seq
         void editPart (int part);
         void showSaveDialog();
         void toggleTheme();
@@ -163,6 +171,7 @@ namespace ambika_plugin
         EurekaLookAndFeel lookAndFeel;
         std::unique_ptr<Content> content;
         juce::Component::SafePointer<juce::CallOutBox> highlightBox;
+        float openedScale = 1.0f;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AmbikaAudioProcessorEditor)
     };

@@ -29,10 +29,14 @@ standalone app for macOS, and as VST3 and a standalone app for Windows.
 - The Ambika's oscillators and wavetables, plus 7 oscillators from the YAM
   firmware mod, plus 3 envelopes, 4 LFOs and a
   14-slot modulation matrix
-- Ambika SVF filter model plus 8 Surge XT filters
+- Ambika SVF filter model, 8 Surge XT filters and a model of the Mutable
+  Instruments Ripples analog filter
+- The Ambika's arpeggiator, two step sequences and note pattern, in sync with
+  your DAW
 - Keyboard splits, cyclic and poly voice allocation, and unison up to 6 voices
+- Separate outputs: any voice can have its own stereo output in your DAW
 - Preset browser with tags, the 128 Ambika factory programs built in, and
-  import of Ambika `.PAT` / `.PRO` / `.MUL` / `.syx` files
+  import of Ambika `.PAT` / `.PRO` / `.MUL` / `.SEQ` / `.syx` files
 - Light and dark themes with your own highlight colour, plus image skins
 
 <p align="center">
@@ -41,6 +45,21 @@ standalone app for macOS, and as VST3 and a standalone app for Windows.
 </p>
 
 ---
+
+## What's new
+
+- **Seq page**: the Ambika's arpeggiator, two step sequences (also
+  modulation sources) and note pattern, in sync with your DAW. See
+  [Seq page](#seq-page-arpeggiator-and-sequencer).
+- **Ripples filter**: a model of the Mutable Instruments Ripples analog
+  filter, with LP4, LP2 and BP2 outputs.
+- **Separate outputs**: send any voice to its own stereo output in your DAW
+  (Multi page, **Output** on each voice card).
+- **Window size**: resizing works in every host (including on Windows), the
+  size is remembered, and right-clicking the background offers fixed sizes.
+  See [Window size](#window-size).
+- Ambika programs and multis now import their sequences, and `.SEQ` files
+  load into a part.
 
 ## Installing
 
@@ -86,9 +105,9 @@ To build it yourself, see [Building](#building).
 ## The interface
 
 **Header (top row)**
-- **Synth / Mod / Multi**: the three pages.
-- **Edit part 1-6**: chooses which part the Synth and Mod pages edit. Each
-  part has its own colour.
+- **Synth / Mod / Seq / Multi**: the four pages.
+- **Edit part 1-6**: chooses which part the Synth, Mod and Seq pages edit.
+  Each part has its own colour.
 - **Voices**: one light per voice, in the colour of the part that is playing
   on it.
 - **Out**: master output level.
@@ -130,6 +149,11 @@ means it has changed since it was loaded or saved.
     - FX Cutoff Warp AP
 
     **Variant** picks the filter's flavour.
+  - **Ripples**: a circuit model of the Mutable Instruments Ripples, a
+    4-pole analog filter that self-oscillates at high resonance (about three
+    quarters up). **Variant** picks its output: LP4 (24 dB low-pass), LP2
+    (12 dB low-pass) or BP2 (band-pass). As on the module, raising the
+    resonance thins out the bass.
 
   Frequency, resonance, the envelope 2 amount and the LFO 2 amount work with
   every model. The display shows the response curve.
@@ -150,10 +174,45 @@ means it has changed since it was loaded or saved.
   The operators are add, multiply, attenuate, max, min, xor, quantize and
   lag.
 
+### Seq page: arpeggiator and sequencer
+
+Each part has its own arpeggiator, two step sequences and a note pattern, as
+on the Ambika.
+
+- **Keys play**: what holding keys does.
+  - **keys**: notes play normally (the default).
+  - **arpeggio**: held keys play one at a time. **Direction** (up, down,
+    up&down, as played, random, or chord to repeat all held keys),
+    **Octaves** (1-4) and **Rhythm** (which of 16 steps play) shape it.
+  - **pattern**: hold a key and the **Note pattern** plays, transposed so
+    that `key` is the note you hold.
+- **Step**: the length of one step, from 1/1 to 1/96 (1/16 by default).
+- **Sequence 1 and 2**: 16 values each; drag across the bars to draw them.
+  They always run, whatever Keys play is set to, and are modulation sources
+  in the Mod page (**seq. 1**, **seq. 2**): route them to the cutoff, the
+  oscillator mix, pan... **arp** is the arpeggiator rhythm as a source.
+- **Note pattern**: for each step a **Gate** (click to play or rest), a
+  **Note** (drag up and down, or use the mouse wheel; double-click resets it
+  to the key), a **Velocity**, and a **Tie** that glides into the next step.
+- **Length**: each sequence and the pattern can be 1-16 steps long, so they
+  can run against each other.
+
+When your DAW plays, the steps follow its tempo and position, and restart in
+place when you loop or jump. When it is stopped (or in the standalone app),
+they run at the tempo and start with the first key you press.
+
 ### Multi page: playing several parts at once
 
 - **Voices 1-6**: each voice chooses which part it plays, or **off**.
   **Edit part** jumps to that part's sound.
+- **Output** (each voice): **main** (the default) or **own output**. A voice
+  on its own output leaves the main mix and plays on output "Voice 1"..
+  "Voice 6" of the plug-in, so you can process it on its own channel. Enable
+  those outputs in your DAW first (in Logic, insert the multi-output version
+  of eureka!; in Ableton Live, choose eureka! as the input of an audio track;
+  in Reaper, add outputs in the plug-in's routing). Until the DAW enables a
+  voice's output, the voice stays on main and its card says so. The
+  standalone app has the main output only.
 - **Voice allocation**: decides how notes reach the voices:
   - **Poly** (default): each note takes the free voice that has rested
     longest.
@@ -194,13 +253,25 @@ saved with your DAW project instead.
 Your presets are saved in **Documents/eureka/presets** as `.eurekapreset`
 files. You can copy them to share them, and sub-folders are included.
 
+A preset includes the part's Seq page: arpeggiator settings, sequences and
+note pattern.
+
 **Ambika sounds**: the 128 Ambika factory programs are built in. In the
 browser they are tagged **Factory** and are read only: load one and use
 **Save as...** to keep your own version. **Import Ambika files...** opens
-original Ambika SD-card files (`.PAT`, `.PRO`, `.MUL`) and SysEx dumps
-(`.syx`). It can load a file straight into the edited part (a `.MUL` multi
-sets up all six parts), or add whole folders to your library under
-`presets/Imported`.
+original Ambika SD-card files (`.PAT`, `.PRO`, `.MUL`, `.SEQ`) and SysEx
+dumps (`.syx`). It can load a file straight into the edited part (a `.MUL`
+multi sets up all six parts; a `.SEQ` sets only the part's arpeggiator and
+sequences), or add whole folders to your library under `presets/Imported`.
+Programs bring their arpeggiator settings and sequences with them.
+
+## Window size
+
+Drag the bottom-right corner to resize the window (60% to 200%), or
+right-click an empty part of the window background for a list of sizes. The
+size is saved with your project, and new windows open at the size you used
+last. If your DAW gives the window a different shape, eureka! keeps its
+proportions and centres itself.
 
 ## Custom looks (skins)
 
@@ -211,8 +282,9 @@ your files in **Documents/eureka/skin** and reopen the plug-in window.
 
 ## Not included (yet)
 
-- The Ambika's arpeggiator and step sequencer, ragas and microtuning
-- Separate outputs for each part; eureka! has one stereo output
+- Ragas and microtuning
+- The Ambika's 4-pole filter cards (the Ambika SVF, Surge and Ripples
+  filters are available instead)
 
 ---
 
@@ -251,9 +323,11 @@ eureka! is built on the **Ambika** by **Mutable Instruments**: the firmware
 and design are by Emilie Gillet. The original Ambika README is in
 [AMBIKA-README.md](AMBIKA-README.md), and the hardware and firmware sources
 are kept in this repository unchanged. The extra filters come from
-**Surge XT** (sst-filters, by the Surge Synth Team). The `yam_`
+**Surge XT** (sst-filters, by the Surge Synth Team). The Ripples filter is
+Tyler Coy's circuit model of the Mutable Instruments Ripples, from VCV
+Rack's Audible Instruments. The `yam_`
 oscillators come from the **YAM** Ambika firmware by bjoeri. The plug-in is built
 with **JUCE**.
 
-eureka! is released under the **GPL-3.0**, like the Ambika firmware and the
-Surge filters.
+eureka! is released under the **GPL-3.0**, like the Ambika firmware, the
+Surge filters and the Ripples model.

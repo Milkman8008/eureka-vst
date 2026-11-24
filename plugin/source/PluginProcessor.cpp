@@ -11,8 +11,20 @@ namespace ambika_plugin
         constexpr int kStateVersion = 3;  // 2: multi-part, 3: preset names.
     }
 
+    // The main mix, then one optional stereo output per voice card (off
+    // until the host or the user enables it). The standalone app only has
+    // the main output.
+    juce::AudioProcessor::BusesProperties AmbikaAudioProcessor::makeBuses()
+    {
+        auto buses = BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true);
+        if (juce::PluginHostType::getPluginLoadedAs() != juce::AudioProcessor::wrapperType_Standalone)
+            for (int v = 0; v < kNumVoices; ++v)
+                buses = buses.withOutput ("Voice " + juce::String (v + 1), juce::AudioChannelSet::stereo(), false);
+        return buses;
+    }
+
     AmbikaAudioProcessor::AmbikaAudioProcessor()
-        : AudioProcessor (BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
+        : AudioProcessor (makeBuses()),
           state (*this, nullptr, "AmbikaState", createParameterLayout()),
           engine (std::make_unique<ambika::plugin::Engine>())
     {
@@ -28,7 +40,10 @@ namespace ambika_plugin
                                            state.getRawParameterValue (partKeyHighId (part)) };
         }
         for (int voice = 0; voice < kNumVoices; ++voice)
+        {
             rawVoiceParts[(size_t) voice] = state.getRawParameterValue (voicePartId (voice));
+            rawVoiceOutputs[(size_t) voice] = state.getRawParameterValue (voiceOutputId (voice));
+        }
         outputGain = state.getRawParameterValue (kOutputGainId);
         voiceMode = state.getRawParameterValue (kVoiceModeId);
         unison = state.getRawParameterValue (kUnisonId);
@@ -38,12 +53,23 @@ namespace ambika_plugin
         engine->Init (48000.0);
         for (auto& owner : voiceOwners)
             owner = 0;
+        for (auto& step : currentSteps)
+            step = 0xff;
     }
 
     bool AmbikaAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
     {
         const auto& out = layouts.getMainOutputChannelSet();
-        return out == juce::AudioChannelSet::mono() || out == juce::AudioChannelSet::stereo();
+        if (out != juce::AudioChannelSet::mono() && out != juce::AudioChannelSet::stereo())
+            return false;
+        // Voice outputs: off, mono (folded down) or stereo.
+        for (int bus = 1; bus < layouts.outputBuses.size(); ++bus)
+        {
+            const auto& set = layouts.outputBuses.getReference (bus);
+            if (! set.isDisabled() && set != juce::AudioChannelSet::mono() && set != juce::AudioChannelSet::stereo())
+                return false;
+        }
+        return layouts.inputBuses.isEmpty() || layouts.getMainInputChannelSet().isDisabled();
     }
 
     void AmbikaAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
@@ -61,6 +87,7 @@ namespace ambika_plugin
 
         left.assign ((size_t) juce::jmax (1, samplesPerBlock), 0.0f);
         right.assign (left.size(), 0.0f);
+        voiceScratch.assign (left.size() * 2 * kNumVoices, 0.0f);
         gainSmoothed.reset (sampleRate, 0.02);
         gainSmoothed.setCurrentAndTargetValue (juce::Decibels::decibelsToGain (outputGain->load()));
     }
@@ -164,56 +191,125 @@ namespace ambika_plugin
         {
             left.resize ((size_t) numSamples);  // Only if the host breaks its own block size.
             right.resize ((size_t) numSamples);
+            voiceScratch.resize ((size_t) numSamples * 2 * kNumVoices);
         }
 
         applyParameters();
 
+        // A voice set to "own output" plays there only while the host has
+        // that bus enabled; otherwise it stays in the main mix.
+        int busMask = 0, directMask = 0;
+        for (int v = 0; v < kNumVoices; ++v)
+        {
+            if (auto* bus = getBus (false, kVoiceBusOffset + v); bus != nullptr && bus->isEnabled()
+                                                                  && bus->getNumberOfChannels() > 0)
+                busMask |= 1 << v;
+            if (juce::roundToInt (rawVoiceOutputs[(size_t) v]->load (std::memory_order_relaxed)) == 1
+                && (busMask & (1 << v)))
+                directMask |= 1 << v;
+        }
+        engine->SetDirectOutputs ((uint8_t) directMask);
+        voiceBusMask.store (busMask, std::memory_order_relaxed);
+        voiceDirectMask.store (directMask, std::memory_order_relaxed);
+
+        // Tempo and transport for synced LFOs, the arpeggiator and the
+        // sequencers. Without a song position (or a playhead, as in the
+        // standalone app) the clock runs free.
+        bool playing = false;
+        double ppq = 0.0;
         if (auto* playHead = getPlayHead())
+        {
             if (auto position = playHead->getPosition())
+            {
                 if (auto bpm = position->getBpm())
                     engine->SetTempo (*bpm);
+                if (auto songPosition = position->getPpqPosition(); songPosition && position->getIsPlaying())
+                {
+                    playing = true;
+                    ppq = *songPosition;
+                }
+            }
+        }
+        engine->SetTransport (playing, ppq);
 
         // Render between MIDI events so that note timing is sample-accurate.
+        const size_t stride = left.size();
+        auto renderTo = [&] (int from, int to)
+        {
+            float* voiceOutputs[2 * kNumVoices];
+            for (int c = 0; c < 2 * kNumVoices; ++c)
+                voiceOutputs[c] = voiceScratch.data() + (size_t) c * stride + (size_t) from;
+            engine->Render (left.data() + from, right.data() + from, to - from, voiceOutputs);
+        };
         int rendered = 0;
         for (const auto metadata : midi)
         {
             const int position = juce::jlimit (0, numSamples, metadata.samplePosition);
             if (position > rendered)
             {
-                engine->Render (left.data() + rendered, right.data() + rendered, position - rendered);
+                renderTo (rendered, position);
                 rendered = position;
             }
             handleMidi (metadata.getMessage());
         }
         if (rendered < numSamples)
-            engine->Render (left.data() + rendered, right.data() + rendered, numSamples - rendered);
+            renderTo (rendered, numSamples);
 
+        // Output gain, on the mix and on every voice output.
         gainSmoothed.setTargetValue (juce::Decibels::decibelsToGain (outputGain->load()));
+        float* direct[kNumVoices * 2];
+        int numDirect = 0;
+        for (int v = 0; v < kNumVoices; ++v)
+            if (directMask & (1 << v))
+                for (int c = 0; c < 2; ++c)
+                    direct[numDirect++] = voiceScratch.data() + (size_t) (2 * v + c) * stride;
         for (int i = 0; i < numSamples; ++i)
         {
             const float gain = gainSmoothed.getNextValue();
             left[(size_t) i] *= gain;
             right[(size_t) i] *= gain;
+            for (int c = 0; c < numDirect; ++c)
+                direct[c][i] *= gain;
         }
 
-        if (buffer.getNumChannels() >= 2)
+        // Every channel the host gave us is written: the mix, the voice
+        // outputs, and silence everywhere else.
+        buffer.clear();
+        auto writePair = [numSamples] (juce::AudioBuffer<float> out, const float* l, const float* r)
         {
-            buffer.copyFrom (0, 0, left.data(), numSamples);
-            buffer.copyFrom (1, 0, right.data(), numSamples);
-            for (int channel = 2; channel < buffer.getNumChannels(); ++channel)
-                buffer.clear (channel, 0, numSamples);
-        }
-        else if (buffer.getNumChannels() == 1)
+            if (out.getNumChannels() >= 2)
+            {
+                out.copyFrom (0, 0, l, numSamples);
+                out.copyFrom (1, 0, r, numSamples);
+            }
+            else if (out.getNumChannels() == 1)
+            {
+                // Mono bus: fold the stereo signal down.
+                out.copyFrom (0, 0, l, numSamples, 0.5f);
+                out.addFrom (0, 0, r, numSamples, 0.5f);
+            }
+        };
+        writePair (getBusBuffer (buffer, false, 0), left.data(), right.data());
+        for (int v = 0; v < kNumVoices; ++v)
         {
-            // Mono output: fold the stereo mix down.
-            buffer.copyFrom (0, 0, left.data(), numSamples, 0.5f);
-            buffer.addFrom (0, 0, right.data(), numSamples, 0.5f);
+            if (! (directMask & (1 << v)))
+                continue;
+            const float* l = voiceScratch.data() + (size_t) (2 * v) * stride;
+            const float* r = voiceScratch.data() + (size_t) (2 * v + 1) * stride;
+            writePair (getBusBuffer (buffer, false, kVoiceBusOffset + v), l, r);
         }
 
         for (int v = 0; v < kNumVoices; ++v)
         {
             voiceLevels[(size_t) v].store (engine->voice_level (v), std::memory_order_relaxed);
             voiceOwners[(size_t) v].store (engine->voice_part ((uint8_t) v), std::memory_order_relaxed);
+        }
+        for (int p = 0; p < kNumParts; ++p)
+        {
+            const auto& part = engine->part ((uint8_t) p);
+            for (int k = 0; k < 3; ++k)
+                currentSteps[(size_t) (p * 4 + k)].store (part.current_step ((uint8_t) k), std::memory_order_relaxed);
+            currentSteps[(size_t) (p * 4 + 3)].store (part.current_rhythm_step(), std::memory_order_relaxed);
         }
     }
 
@@ -227,6 +323,8 @@ namespace ambika_plugin
         auto tree = state.copyState();
         tree.setProperty ("stateVersion", kStateVersion, nullptr);
         tree.setProperty ("editedPart", editedPart(), nullptr);
+        if (editorScale() > 0.0f)
+            tree.setProperty ("editorScale", editorScale(), nullptr);
         presetManager.writeState (tree);
         if (auto xml = tree.createXml())
             copyXmlToBinary (*xml, destData);
@@ -240,6 +338,7 @@ namespace ambika_plugin
             {
                 auto tree = juce::ValueTree::fromXml (*xml);
                 setEditedPart (tree.getProperty ("editedPart", 0));
+                setEditorScale ((float) tree.getProperty ("editorScale", 0.0f));
                 // Version 1 states have no multi parameters; replaceState leaves
                 // them at their defaults (part 1, all voices, all channels).
                 state.replaceState (tree);

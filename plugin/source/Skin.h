@@ -35,7 +35,7 @@ namespace ambika_plugin
         };
 
         juce::Image background;
-        std::array<juce::Image, 4> pageBackgrounds;  // synth, mod, multi, presets
+        std::array<juce::Image, 5> pageBackgrounds;  // synth, mod, multi, presets, seq
         juce::Image logo;
         juce::Image knob;
         int knobFrames = 0;

@@ -14,6 +14,11 @@ namespace plugin {
 extern const prog_uint8_t midi_clock_tick_per_step[15];
 extern const prog_uint16_t lfo_phase_increment_per_clock_tick[15];
 
+// Arpeggiator rhythms (controller/resources.cc): bit n set = the arpeggiator
+// plays on step n of 16.
+static const uint8_t kNumArpeggiatorPatterns = 22;
+extern const prog_uint16_t arpeggiator_patterns[kNumArpeggiatorPatterns];
+
 }  // namespace plugin
 }  // namespace ambika
 

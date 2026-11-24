@@ -15,6 +15,7 @@ namespace ambika_plugin
     juce::String partKeyLowId (int part) { return "multi_part" + juce::String (part + 1) + "_key_low"; }
     juce::String partKeyHighId (int part) { return "multi_part" + juce::String (part + 1) + "_key_high"; }
     juce::String voicePartId (int voice) { return "multi_voice" + juce::String (voice + 1) + "_part"; }
+    juce::String voiceOutputId (int voice) { return "multi_voice" + juce::String (voice + 1) + "_output"; }
 
     juce::String noteName (int note)
     {
@@ -80,6 +81,10 @@ namespace ambika_plugin
             multi->addChild (std::make_unique<juce::AudioParameterChoice> (
                 juce::ParameterID { voicePartId (voice), 1 }, "Voice " + juce::String (voice + 1) + " Part",
                 owners, 1));
+        for (int voice = 0; voice < kNumVoices; ++voice)
+            multi->addChild (std::make_unique<juce::AudioParameterChoice> (
+                juce::ParameterID { voiceOutputId (voice), 1 }, "Voice " + juce::String (voice + 1) + " Output",
+                juce::StringArray { "main", "own output" }, 0));
         const auto noteAttributes = juce::AudioParameterIntAttributes()
                                         .withStringFromValueFunction ([] (int v, int) { return noteName (v); })
                                         .withValueFromStringFunction ([] (const juce::String& text)

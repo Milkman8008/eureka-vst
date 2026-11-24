@@ -7,6 +7,7 @@
 #include <juce_events/juce_events.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <array>
 #include <cmath>
 #include <cstdio>
 
@@ -151,6 +152,60 @@ int main (int argc, char** argv)
         cutoff->setValueNotifyingHost (1.0f);
         plugin->setStateInformation (saved.getData(), (int) saved.getSize());
         check (std::abs (cutoff->getValue() - savedValue) < 1e-6f, "state restores parameter values");
+    }
+
+    // Separate outputs: the main mix plus one optional stereo bus per voice.
+    check (plugin->getBusCount (false) == 7, juce::String::formatted ("1 + 6 output buses (%d)", plugin->getBusCount (false)));
+    if (auto* voiceOutput = findParameter (*plugin, "Voice 1 Output"); voiceOutput != nullptr && plugin->getBusCount (false) == 7)
+    {
+        // Measures the main pair and voice 1's pair while one note plays
+        // (in Poly mode the first note takes voice card 1).
+        auto playOnce = [&] (int numChannels)
+        {
+            juce::AudioBuffer<float> buffer (numChannels, blockSize);
+            std::array<double, 2> energy { 0.0, 0.0 };
+            for (int b = 0; b < 30; ++b)
+            {
+                buffer.clear();
+                juce::MidiBuffer midi;
+                if (b == 0)
+                    midi.addEvent (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), 0);
+                if (b == 20)
+                    midi.addEvent (juce::MidiMessage::noteOff (1, 60), 0);
+                plugin->processBlock (buffer, midi);
+                for (int i = 0; i < blockSize; ++i)
+                {
+                    energy[0] += std::pow (buffer.getSample (0, i), 2.0f);
+                    if (numChannels >= 4)
+                        energy[1] += std::pow (buffer.getSample (2, i), 2.0f);
+                }
+            }
+            render (*plugin, 200, blockSize);  // Let the release finish.
+            return energy;
+        };
+        if (cutoff != nullptr)
+            cutoff->setValueNotifyingHost (1.0f);
+        voiceOutput->setValueNotifyingHost (1.0f);  // "own output"
+
+        // Bus off: the voice falls back to the main mix.
+        auto fallback = playOnce (2);
+        check (fallback[0] > 1.0, "voice on a disabled bus stays in the main mix");
+
+        auto layout = plugin->getBusesLayout();
+        layout.getChannelSet (false, 1) = juce::AudioChannelSet::stereo();
+        plugin->releaseResources();
+        check (plugin->setBusesLayout (layout), "enable the Voice 1 output");
+        plugin->prepareToPlay (rate, blockSize);
+        plugin->setPlayConfigDetails (0, plugin->getTotalNumOutputChannels(), rate, blockSize);
+        const int channels = plugin->getTotalNumOutputChannels();
+        check (channels == 4, juce::String::formatted ("main + voice 1 = 4 channels (%d)", channels));
+        auto routed = playOnce (juce::jmax (channels, 2));
+        check (routed[1] > 1.0 && routed[0] < routed[1] * 1e-6,
+               juce::String::formatted ("voice 1 plays on its own output only (main %.3g, voice %.3g)", routed[0], routed[1]));
+
+        voiceOutput->setValueNotifyingHost (0.0f);  // back to "main"
+        auto mainAgain = playOnce (juce::jmax (channels, 2));
+        check (mainAgain[0] > 1.0 && mainAgain[1] < 1e-9, "voice set to main leaves its bus silent");
     }
 
     // Editor.

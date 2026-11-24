@@ -2,6 +2,8 @@
 
 #include "PluginParameters.h"
 
+#include <cstring>
+
 namespace ambika_plugin::ambika_format
 {
     namespace
@@ -159,6 +161,56 @@ namespace ambika_plugin::ambika_format
         return parse (data, file.getFileNameWithoutExtension(), out);
     }
 
+    // A part setting read from PartData (controller/part.h), or fallback for
+    // settings Ambika parts don't have.
+    static int partFieldValue (int field, const uint8_t* part, int fallback)
+    {
+        using namespace ambika::plugin;
+        switch (field)
+        {
+            case PART_VOLUME: return part[0];
+            case PART_OCTAVE: return (int8_t) part[1];
+            case PART_TUNING: return (int8_t) part[2];
+            case PART_SPREAD: return part[3];
+            case PART_LEGATO: return part[5];
+            case PART_PORTAMENTO: return part[6];
+            case PART_ARP_MODE: return part[7];
+            case PART_ARP_DIRECTION: return part[8];
+            case PART_ARP_OCTAVE: return part[9];
+            case PART_ARP_PATTERN: return part[10];
+            case PART_ARP_DIVIDER: return part[11];
+            case PART_POLYPHONY_MODE:
+                // MONO, POLY, UNISON_2X, CYCLIC; CHAIN (4) has no meaning in
+                // a plug-in: poly.
+                return part[15] <= 3 ? part[15] : 1;
+            default: break;  // Pan: not in Ambika parts.
+        }
+        // Sequence lengths, then sequence_data at offset 16: steps of
+        // sequences 1 and 2, then (note | gate << 7, velocity | legato << 7)
+        // pairs for the note pattern. Lengths above 16 are clamped by the
+        // caller (eureka! sequences have 16 steps).
+        if (field >= PART_SEQUENCE_LENGTH && field < PART_SEQUENCE_LENGTH + kNumSequences)
+            return part[12 + field - PART_SEQUENCE_LENGTH];
+        if (field >= PART_SEQ1_STEP && field < PART_FIELD_LAST)
+        {
+            const int block = (field - PART_SEQ1_STEP) / kNumSteps;
+            const int step = (field - PART_SEQ1_STEP) % kNumSteps;
+            const uint8_t* data = part + 16;
+            const uint8_t noteByte = data[32 + 2 * step];
+            const uint8_t velocityByte = data[33 + 2 * step];
+            switch (block)
+            {
+                case 0: return data[step];
+                case 1: return data[16 + step];
+                case 2: return noteByte & 0x7f;
+                case 3: return velocityByte & 0x7f;
+                case 4: return noteByte >> 7;
+                default: return velocityByte >> 7;
+            }
+        }
+        return fallback;
+    }
+
     std::vector<int> toEngineValues (const uint8_t* patch, const uint8_t* part)
     {
         using namespace ambika::plugin;
@@ -174,25 +226,30 @@ namespace ambika_plugin::ambika_format
             }
             else if (info.target == TARGET_PART && part != nullptr)
             {
-                // PartData (controller/part.h): volume, octave, tuning, spread,
-                // raga, legato, portamento, ... , polyphony mode at 15.
-                switch (info.address)
-                {
-                    case PART_VOLUME: value = part[0]; break;
-                    case PART_OCTAVE: value = (int8_t) part[1]; break;
-                    case PART_TUNING: value = (int8_t) part[2]; break;
-                    case PART_SPREAD: value = part[3]; break;
-                    case PART_LEGATO: value = part[5]; break;
-                    case PART_PORTAMENTO: value = part[6]; break;
-                    case PART_POLYPHONY_MODE:
-                        // MONO, POLY, UNISON_2X, CYCLIC; CHAIN (4) has no
-                        // meaning in a plug-in: poly.
-                        value = part[15] <= 3 ? part[15] : 1;
-                        break;
-                    default: break;  // Pan: not in Ambika parts.
-                }
+                value = partFieldValue (info.address, part, value);
             }
             values.push_back (juce::jlimit<int> (info.min_value, info.max_value, value));
+        }
+        return values;
+    }
+
+    std::vector<std::pair<int, int>> sequenceValues (const uint8_t* sequence)
+    {
+        using namespace ambika::plugin;
+        // A sequence object is PartData bytes 8..79 (Part::raw_sequence_data
+        // in controller/part.h): arpeggiator direction, octaves, rhythm and
+        // step, the lengths, polyphony (not used here), the steps.
+        uint8_t part[kPartSize] = {};
+        std::memcpy (part + 8, sequence, kSequenceSize);
+        std::vector<std::pair<int, int>> values;
+        for (int i = 0; i < NumParameters(); ++i)
+        {
+            const auto& info = GetParameter (i);
+            // The mode (PartData byte 7) is not part of a sequence: keep it.
+            if (info.target != TARGET_PART || info.address <= PART_ARP_MODE)
+                continue;
+            values.emplace_back (i, juce::jlimit<int> (info.min_value, info.max_value,
+                                                       partFieldValue (info.address, part, info.default_value)));
         }
         return values;
     }

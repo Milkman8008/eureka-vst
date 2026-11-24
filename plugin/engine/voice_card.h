@@ -212,6 +212,10 @@ class VoiceCard {
 
   const Patch& patch() const { return patch_; }
   uint8_t gate() const { return gate_; }
+  // The note being played (7.7 fixed point: MIDI note * 128), and the value
+  // of a modulation source. For tests.
+  int16_t pitch_target() const { return pitch_target_; }
+  uint8_t modulation_source(uint8_t source) const { return modulation_sources_[source]; }
 
  private:
   void LoadSources();

@@ -22,6 +22,9 @@ namespace ambika_plugin
     // Multi parameters: the part each voice card plays, and how notes are
     // given to the cards.
     juce::String voicePartId (int voice);
+    // Where each voice card is heard: 0 = the main output, 1 = its own
+    // output bus ("Voice 1".."Voice 6"), if the host has that bus enabled.
+    juce::String voiceOutputId (int voice);
     // Keyboard split per part (same IDs as earlier builds, so their key
     // ranges load again).
     juce::String partKeyLowId (int part);

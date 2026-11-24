@@ -8,7 +8,9 @@
 
 #include "voicecard/resources.h"
 
-#include "surge_filter.h"
+#include "controller_tables.h"
+
+#include "filter_models.h"
 
 namespace ambika {
 namespace plugin {
@@ -134,6 +136,22 @@ static_assert(sizeof(kPolyphonyModes) / sizeof(kPolyphonyModes[0]) ==
 
 const char* const kOffOn[] = { "off", "on" };
 
+const char* const kArpModes[] = { "keys", "arpeggio", "pattern" };
+static_assert(sizeof(kArpModes) / sizeof(kArpModes[0]) == ARP_SEQUENCER_MODE_LAST,
+              "arpeggiator mode names");
+
+const char* const kArpDirections[] = {
+  "up", "down", "up&down", "as played", "random", "chord",
+};
+static_assert(sizeof(kArpDirections) / sizeof(kArpDirections[0]) ==
+              ARPEGGIO_DIRECTION_LAST, "arpeggiator direction names");
+
+// Clock divisions, as the synced LFO rates (controller UNIT_CLOCK_RESOLUTION).
+const char* const kClockDivisions[kNumSyncedLfoRates] = {
+  "1/1", "3/4", "2/3", "1/2", "3/8", "1/3", "1/4", "1/6",
+  "1/8", "1/12", "1/16", "1/24", "1/32", "1/48", "1/96",
+};
+
 struct PatchByteRange {
   bool used = false;
   int16_t min_value = 0;
@@ -173,11 +191,12 @@ class ParameterTable {
     ranges[address].max_value = static_cast<int16_t>(max_value);
   }
 
-  void AddPart(const std::string& id, const std::string& name, PartField field,
+  void AddPart(const std::string& id, const std::string& name, int field,
                int min_value, int max_value,
-               const char* const* choices = nullptr) {
-    const int default_value = GetPartField(PartSettings(), field);
-    parameters.push_back({ Store(id), Store(name), Store("Part"), TARGET_PART,
+               const char* const* choices = nullptr,
+               const std::string& group = "Part") {
+    const int default_value = GetPartField(PartSettings(), static_cast<uint8_t>(field));
+    parameters.push_back({ Store(id), Store(name), Store(group), TARGET_PART,
                            static_cast<uint8_t>(field),
                            static_cast<int16_t>(min_value),
                            static_cast<int16_t>(max_value),
@@ -223,7 +242,7 @@ class ParameterTable {
     // 1.. = the Surge XT filters eureka! offers (SurgeFilter's model list),
     // with a per-model variant.
     AddPatch("filter_model", "Filter Model", "Filter", kPatchFilterModel,
-             0, SurgeFilter::NumModels(), FilterModelNames());
+             0, NumFilterModels() - 1, FilterModelNames());
     AddPatch("filter_variant", "Filter Variant", "Filter", kPatchFilterVariant,
              0, kMaxFilterVariants - 1);
     AddPatch("filter_env", "Env 2 > Cutoff", "Filter", PRM_PATCH_FILTER1_ENV,
@@ -291,13 +310,61 @@ class ParameterTable {
     AddPart("part_portamento", "Portamento", PART_PORTAMENTO, 0, 63);
     AddPart("part_polyphony", "Voicing", PART_POLYPHONY_MODE,
             0, POLYPHONY_MODE_LAST - 1, kPolyphonyModes);
+
+    // Arpeggiator / sequencer (controller PRM_PART_ARP_* and sequences).
+    const std::string arp = "Arpeggiator";
+    AddPart("arp_mode", "Arp/Seq Mode", PART_ARP_MODE, 0,
+            ARP_SEQUENCER_MODE_LAST - 1, kArpModes, arp);
+    AddPart("arp_direction", "Arp Direction", PART_ARP_DIRECTION, 0,
+            ARPEGGIO_DIRECTION_LAST - 1, kArpDirections, arp);
+    AddPart("arp_octave", "Arp Octaves", PART_ARP_OCTAVE, 1, 4, nullptr, arp);
+    AddPart("arp_pattern", "Arp Rhythm", PART_ARP_PATTERN, 0,
+            kNumArpeggiatorPatterns - 1, ArpPatternNames(), arp);
+    AddPart("arp_divider", "Arp/Seq Step", PART_ARP_DIVIDER, 0,
+            kNumSyncedLfoRates - 1, kClockDivisions, arp);
+    static const char* const kSequenceIds[] = { "seq1", "seq2", "pattern" };
+    static const char* const kSequenceNames[] = { "Seq 1", "Seq 2", "Pattern" };
+    static const char* const kSequenceGroups[] = { "Sequence 1", "Sequence 2", "Pattern" };
+    for (int i = 0; i < kNumSequences; ++i) {
+      AddPart(std::string(kSequenceIds[i]) + "_length",
+              std::string(kSequenceNames[i]) + " Length",
+              PART_SEQUENCE_LENGTH + i, 1, kNumSteps, nullptr, kSequenceGroups[i]);
+    }
+    for (int seq = 0; seq < 2; ++seq) {
+      for (int step = 0; step < kNumSteps; ++step) {
+        const std::string n = std::to_string(step + 1);
+        AddPart(std::string(kSequenceIds[seq]) + "_step" + n,
+                std::string(kSequenceNames[seq]) + " Step " + n,
+                (seq ? PART_SEQ2_STEP : PART_SEQ1_STEP) + step, 0, 255, nullptr,
+                kSequenceGroups[seq]);
+      }
+    }
+    for (int step = 0; step < kNumSteps; ++step) {
+      const std::string n = std::to_string(step + 1);
+      AddPart("pattern_note" + n, "Pattern Note " + n, PART_PATTERN_NOTE + step,
+              0, 127, nullptr, "Pattern");
+      AddPart("pattern_velocity" + n, "Pattern Velocity " + n,
+              PART_PATTERN_VELOCITY + step, 0, 127, nullptr, "Pattern");
+      AddPart("pattern_gate" + n, "Pattern Gate " + n, PART_PATTERN_GATE + step,
+              0, 1, kOffOn, "Pattern");
+      AddPart("pattern_legato" + n, "Pattern Tie " + n, PART_PATTERN_LEGATO + step,
+              0, 1, kOffOn, "Pattern");
+    }
+  }
+
+  const char* const* ArpPatternNames() {
+    if (arp_pattern_names_.empty()) {
+      for (int i = 0; i < kNumArpeggiatorPatterns; ++i) {
+        arp_pattern_names_.push_back(ArpeggiatorPatternName(i));
+      }
+    }
+    return arp_pattern_names_.data();
   }
 
   const char* const* FilterModelNames() {
     if (filter_model_names_.empty()) {
-      filter_model_names_.push_back("Ambika SVF");
-      for (int model = 1; model <= SurgeFilter::NumModels(); ++model) {
-        filter_model_names_.push_back(SurgeFilter::ModelName(model));
+      for (int model = 0; model < NumFilterModels(); ++model) {
+        filter_model_names_.push_back(FilterModelName(model));
       }
     }
     return filter_model_names_.data();
@@ -324,6 +391,7 @@ class ParameterTable {
   std::deque<std::string> strings_;
   std::vector<const char*> lfo_rate_names_;
   std::vector<const char*> filter_model_names_;
+  std::vector<const char*> arp_pattern_names_;
 };
 
 const ParameterTable& Table() {
@@ -370,8 +438,29 @@ int GetPartField(const PartSettings& settings, uint8_t field) {
     case PART_PORTAMENTO: return settings.portamento_time;
     case PART_POLYPHONY_MODE: return settings.polyphony_mode;
     case PART_PAN: return settings.pan - 64;
-    default: return 0;
+    case PART_ARP_MODE: return settings.arp_mode;
+    case PART_ARP_DIRECTION: return settings.arp_direction;
+    case PART_ARP_OCTAVE: return settings.arp_octave;
+    case PART_ARP_PATTERN: return settings.arp_pattern;
+    case PART_ARP_DIVIDER: return settings.arp_divider;
+    default: break;
   }
+  if (field >= PART_SEQUENCE_LENGTH && field < PART_SEQUENCE_LENGTH + kNumSequences) {
+    return settings.sequence_length[field - PART_SEQUENCE_LENGTH];
+  }
+  if (field >= PART_SEQ1_STEP && field < PART_FIELD_LAST) {
+    const int block = (field - PART_SEQ1_STEP) / kNumSteps;
+    const int step = (field - PART_SEQ1_STEP) % kNumSteps;
+    switch (block) {
+      case 0: return settings.step_value[0][step];
+      case 1: return settings.step_value[1][step];
+      case 2: return settings.pattern_note[step];
+      case 3: return settings.pattern_velocity[step];
+      case 4: return settings.pattern_gate[step];
+      default: return settings.pattern_legato[step];
+    }
+  }
+  return 0;
 }
 
 void SetPartField(PartSettings* settings, uint8_t field, int value) {
@@ -387,8 +476,48 @@ void SetPartField(PartSettings* settings, uint8_t field, int value) {
     case PART_POLYPHONY_MODE:
       settings->polyphony_mode = clamp(0, POLYPHONY_MODE_LAST - 1);
       break;
+    case PART_ARP_MODE: settings->arp_mode = clamp(0, ARP_SEQUENCER_MODE_LAST - 1); return;
+    case PART_ARP_DIRECTION:
+      settings->arp_direction = clamp(0, ARPEGGIO_DIRECTION_LAST - 1);
+      return;
+    case PART_ARP_OCTAVE: settings->arp_octave = clamp(1, 4); return;
+    case PART_ARP_PATTERN: settings->arp_pattern = clamp(0, kNumArpeggiatorPatterns - 1); return;
+    case PART_ARP_DIVIDER: settings->arp_divider = clamp(0, kNumSyncedLfoRates - 1); return;
     default: break;
   }
+  if (field >= PART_SEQUENCE_LENGTH && field < PART_SEQUENCE_LENGTH + kNumSequences) {
+    settings->sequence_length[field - PART_SEQUENCE_LENGTH] = clamp(1, kNumSteps);
+    return;
+  }
+  if (field >= PART_SEQ1_STEP && field < PART_FIELD_LAST) {
+    const int block = (field - PART_SEQ1_STEP) / kNumSteps;
+    const int step = (field - PART_SEQ1_STEP) % kNumSteps;
+    switch (block) {
+      case 0: settings->step_value[0][step] = clamp(0, 255); break;
+      case 1: settings->step_value[1][step] = clamp(0, 255); break;
+      case 2: settings->pattern_note[step] = clamp(0, 127); break;
+      case 3: settings->pattern_velocity[step] = clamp(0, 127); break;
+      case 4: settings->pattern_gate[step] = clamp(0, 1); break;
+      default: settings->pattern_legato[step] = clamp(0, 1); break;
+    }
+  }
+}
+
+const char* ArpeggiatorPatternName(int pattern) {
+  static std::vector<std::string> names;
+  if (names.empty()) {
+    for (int i = 0; i < kNumArpeggiatorPatterns; ++i) {
+      const uint16_t bits = arpeggiator_patterns[i];
+      std::string name;
+      for (int step = 0; step < 16; ++step) {
+        if (step && step % 4 == 0) name += ' ';
+        name += (bits & (1 << step)) ? 'x' : '.';
+      }
+      names.push_back(name);
+    }
+  }
+  if (pattern < 0 || pattern >= kNumArpeggiatorPatterns) pattern = 0;
+  return names[pattern].c_str();
 }
 
 }  // namespace plugin

@@ -34,7 +34,25 @@ enum PartField {
   PART_PORTAMENTO,
   PART_POLYPHONY_MODE,
   PART_PAN,
+  // Arpeggiator and sequencer.
+  PART_ARP_MODE,
+  PART_ARP_DIRECTION,
+  PART_ARP_OCTAVE,
+  PART_ARP_PATTERN,
+  PART_ARP_DIVIDER,
+  PART_SEQUENCE_LENGTH,               // + sequence (0..2)
+  PART_SEQ1_STEP = 16,                // + step (0..15)
+  PART_SEQ2_STEP = PART_SEQ1_STEP + kNumSteps,
+  PART_PATTERN_NOTE = PART_SEQ2_STEP + kNumSteps,
+  PART_PATTERN_VELOCITY = PART_PATTERN_NOTE + kNumSteps,
+  PART_PATTERN_GATE = PART_PATTERN_VELOCITY + kNumSteps,
+  PART_PATTERN_LEGATO = PART_PATTERN_GATE + kNumSteps,
+  PART_FIELD_LAST = PART_PATTERN_LEGATO + kNumSteps,
 };
+
+// Value names of the arpeggiator rhythms: "x" where a step plays, e.g.
+// "x.x. xxx. x.x. x.xx".
+const char* ArpeggiatorPatternName(int pattern);
 
 struct ParameterInfo {
   const char* id;     // Stable identifier, used in saved host state.

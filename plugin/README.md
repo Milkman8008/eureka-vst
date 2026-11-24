@@ -60,9 +60,10 @@ The upstream firmware is compiled as-is wherever possible; nothing outside
 | Oscillators, wavetables, envelopes, LFO class | `voicecard/oscillator.cc`, `voicecard/resources.cc`, `voicecard/envelope.h`, `common/lfo.h` (unchanged) |
 | Voice allocator, note stack | `controller/voice_allocator.cc`, `controller/note_stack.h` (unchanged) |
 | Voice engine | `engine/voice_card.*`: `voicecard/voice.cc` with its static singletons turned into members (six voices per instance, several instances per process) |
-| Part (notes, voicing modes, LFO 1-3, sync) | `engine/part.*`: the voice-driving subset of `controller/part.cc` |
+| Part (notes, voicing modes, LFO 1-3, sync, arpeggiator, sequencer) | `engine/part.*`: the voice-driving subset of `controller/part.cc` |
 | Parameter names and ranges | `engine/parameters.*`, from `controller/parameter.cc` |
 | DAC, filter, VCA | `engine/analog.*` (new; the hardware is analog here) |
+| Ripples filter | `engine/ripples/`: Tyler Coy's Ripples circuit model from VCV Rack's AudibleInstruments (`src/Ripples`, commit 597d8a6), Rack types replaced; `engine/ripples_filter.*` wraps it |
 | Sample rate conversion | `engine/resampler.*` (new) |
 
 Desktop compatibility comes from a few build-time shims rather than edits:
@@ -72,8 +73,9 @@ Desktop compatibility comes from a few build-time shims rather than edits:
 - `avrlib/op.h` is copied into the build tree with `USE_OPTIMIZED_OP` (AVR
   assembly) turned off, and with a fix for the portable `U24Sub`, which was
   never compiled upstream and referenced an undefined variable.
-- The controller's LFO wavetables and clock tables are extracted from
-  `controller/resources.cc` and `controller/part.cc` at configure time.
+- The controller's LFO wavetables, clock tables and arpeggiator rhythms are
+  extracted from `controller/resources.cc` and `controller/part.cc` at
+  configure time.
 
 Signal path per voice, as on the hardware: the voicecard renders 40 8-bit
 samples per control period at 20 MHz / 510 (about 39.2 kHz). Each sample is
@@ -124,6 +126,19 @@ Each part chooses its filter on the Synth page:
   model's subtype (slope, mode, saturation...). The list lives in
   `engine/surge_filter.cc` (`kModels`); sst-filters has more types if wanted.
 
+- **Ripples** (model 9, after the Surge filters so saved model numbers keep
+  their meaning): Tyler Coy's circuit model of the Mutable Instruments
+  Ripples (four SSM2164 VCA-integrator cells, LM13700 resonance OTA, op-amp
+  saturation, solved with RK2 at about 235 kHz behind its own elliptic
+  anti-aliasing filters). **Variant** selects the output: LP4, LP2 or BP2.
+  The voice's +/-1 level is treated as +/-5 V. The filter display uses the
+  circuit's small-signal response (`RipplesEngine::LinearResponse`), since a
+  self-oscillating filter has no useful impulse response; a test checks it
+  against the simulation (within 1 dB). Six voices cost about 11% of one
+  core on an Apple M-series machine.
+
+The model list is `engine/filter_models.*`.
+
 The firmware's cutoff, resonance, envelope 2 and LFO 2 amounts, key tracking
 and modulation matrix drive whichever filter is selected. The model and
 variant are stored in two padding bytes of the patch that the voicecard
@@ -133,6 +148,57 @@ the Ambika SVF.
 The Surge libraries are submodules in `plugin/third_party`, pinned to the
 commits Surge XT uses: `sst-filters`, `sst-basic-blocks` and `simde` (SSE on
 Apple Silicon). They require C++20, which the whole plug-in builds with.
+
+## Arpeggiator and sequencer
+
+`Part` runs the controller's arpeggiator, two modulation sequences and note
+pattern (`ClockSequencer`, `ClockArpeggiator`, `StepArpeggio` in
+`controller/part.cc`). The settings are part parameters (Seq page; IDs
+`arp_*`, `seq1_*`, `seq2_*`, `pattern_*`), so presets, projects, undo and
+automation include them. Differences from the hardware:
+
+- Sequences have 16 steps each. The hardware allows lengths up to 32, but a
+  longer sequence reads the next one's memory; imported lengths are clamped.
+- Clock: the engine counts MIDI clock ticks (24 per quarter note) from the
+  host tempo. While the host plays, `Engine::SetTransport` places the
+  sequencers at the song position (`Part::Start(tick)` derives the step of
+  each sequence and of the arpeggiator rhythm) and relocates them after a
+  jump or loop of more than one tick. While it is stopped the clock runs
+  free, and a part restarts its sequencers on the first key pressed.
+- After a (re)start the arpeggio begins on its first note; the firmware steps
+  before playing, so it began on the second.
+- In the Cyclic and Poly voice modes the engine, not the part, chooses voice
+  cards: an arpeggiating part receives the keys, and the notes it generates
+  come back through `PartNoteSink` to the engine's allocator, limited to the
+  part's own cards (tracked in `note_voices_` under slot 16 + part).
+- Changing a part's arp/seq mode stops its notes, so no key is left without
+  its note-off.
+
+Seq. 1, seq. 2 and arp feed the modulation matrix in every mode, as on the
+hardware. Ambika programs and multis import their sequences and arpeggiator
+settings; a `.SEQ` file (PartData bytes 8-79) loads into the edited part
+without changing its sound or mode.
+
+## Separate outputs
+
+Besides the main stereo output there are six optional stereo buses, "Voice
+1" to "Voice 6" (VST3 and AU; the standalone app has the main output only).
+Each voice card has an **Output** parameter (`multi_voiceN_output`: main /
+own output). A voice set to its own output whose bus the host has enabled is
+rendered without the main mix into its own pair of resamplers, which are
+synchronised with the main ones (`Resampler::SyncTo`) when the voice joins,
+so all outputs stay sample-aligned; output gain applies to every bus. While
+the host has not enabled the bus, the voice stays in the main mix (the
+Multi page says so). Pan still works within a voice's own stereo pair.
+
+## Window size
+
+The editor is drawn at 1200 x 802 and scaled. It fits the window in both
+dimensions and centres the content, so hosts that resize without asking the
+plug-in's constrainer (several on Windows) no longer cut off the bottom.
+The scale is saved in the project (`editorScale`) and the last scale chosen
+is a user preference (`windowScale` in the settings file). Right-clicking
+the window background offers fixed sizes, 60% to 200%.
 
 ## YAM oscillators
 
@@ -228,26 +294,27 @@ in and appear in the browser tagged **Factory** (read only: load one and
 **Save as...** to keep a changed copy).
 
 **Import Ambika files...** in the browser reads the Ambika's own formats:
-SD-card files (`.PAT` patch, `.PRO` program, `.MUL` multi) and SysEx dumps
+SD-card files (`.PAT` patch, `.PRO` program, `.MUL` multi, `.SEQ` sequence) and SysEx dumps
 (`.syx`). It can either load one file into the edited part (a `.MUL` loads all
 six parts with their keyboard splits and voice assignment), or add files and
 whole folders to the library as eureka! presets in `presets/Imported`
 (multis become one preset per part). The patch maps one to one; from the part
 settings, volume, octave, tuning, spread, legato, portamento and voicing are
-used (chain mode becomes poly). Sequences, arpeggiator settings and ragas are
-ignored, as eureka! has no sequencer.
+used (chain mode becomes poly). Sequences and arpeggiator settings are
+imported too (sequence lengths above 16 are clamped); ragas are ignored.
+`.SEQ` files load into the edited part only (they are not sounds, so folder
+imports skip them).
 
 ## Not in this version
 
-- Arpeggiator and step sequencer (the Seq. 1/2 and Arp modulation sources stay
-  at 0), ragas/microtuning, CC-to-parameter mapping and NRPN.
+- Ragas/microtuning, CC-to-parameter mapping and NRPN.
 - The two 4-pole Ambika filter cards are not modelled (the Ambika SVF and the
   Surge filters are available instead).
-- One stereo output; no separate outputs per part or voice.
 
 ## License
 
 GPL-3.0, like the Ambika firmware. The Surge XT filter libraries
-(sst-filters, sst-basic-blocks, by the Surge Synth Team) are GPL-3.0 as well;
+(sst-filters, sst-basic-blocks, by the Surge Synth Team) and the Ripples model
+(Tyler Coy) are GPL-3.0 as well;
 simde is MIT. JUCE 8 is used under its AGPLv3 option, which GPLv3 allows
 combining with.

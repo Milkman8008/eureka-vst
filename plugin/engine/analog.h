@@ -16,6 +16,7 @@
 
 #include <stdint.h>
 
+#include "ripples_filter.h"
 #include "surge_filter.h"
 
 namespace ambika {
@@ -29,7 +30,8 @@ class AnalogVoice {
   // Converts one control block of 8-bit voicecard samples into
   // num_samples * oversampling analog samples, added to out.
   // filter_model 0 is the SVF model below; 1.. selects a Surge XT filter
-  // type (see SurgeFilter), with filter_variant as its subtype.
+  // type (see SurgeFilter) or Ripples (filter_models.h), with
+  // filter_variant as its subtype / output.
   void Process(const uint8_t* samples, int num_samples,
                uint8_t cutoff, uint8_t resonance, uint8_t mode,
                uint8_t vca, uint8_t crush, uint8_t filter_model,
@@ -69,6 +71,7 @@ class AnalogVoice {
 
   // Surge filter path. block_ holds one oversampled block before the VCA.
   SurgeFilter surge_;
+  RipplesFilter ripples_;
   float block_[256];
   uint8_t last_model_ = 0;
 

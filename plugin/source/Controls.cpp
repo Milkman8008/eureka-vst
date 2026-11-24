@@ -3,7 +3,7 @@
 #include "EurekaLookAndFeel.h"
 #include "Skin.h"
 #include "preview.h"
-#include "surge_filter.h"
+#include "filter_models.h"
 
 #include <climits>
 #include <cmath>
@@ -226,13 +226,13 @@ namespace ambika_plugin
     {
         reader.poll();
         const int model = reader.value (0);
-        const int variants = model > 0 ? ambika::plugin::SurgeFilter::NumSubtypes (model) : 0;
+        const int variants = ambika::plugin::NumFilterVariants (model);
         if (model != shownModel)
         {
             shownModel = model;
             combo.clear (juce::dontSendNotification);
             for (int i = 0; i < variants; ++i)
-                combo.addItem (ambika::plugin::SurgeFilter::SubtypeName (model, i), i + 1);
+                combo.addItem (ambika::plugin::FilterVariantName (model, i), i + 1);
             if (variants == 0)
                 combo.addItem ("-", 1);
             combo.setEnabled (variants > 1);
@@ -274,7 +274,7 @@ namespace ambika_plugin
         const int model = reader.value (3), variant = reader.value (4);
         const double cv = juce::jlimit (0.0, 255.0, cutoff * 2.0 - 8.0);
 
-        // Surge models: measure the real filter's response at a set of
+        // Surge and Ripples models: measure the real filter's response at a set of
         // frequencies (cached), then interpolate.
         constexpr int kSurgePoints = 120;
         if (model > 0)
@@ -287,7 +287,7 @@ namespace ambika_plugin
                 for (int i = 0; i < kSurgePoints; ++i)
                     frequencies[(size_t) i] = minHz * std::pow (maxHz / minHz, (double) i / (kSurgePoints - 1));
                 surgeCurve.assign (kSurgePoints, 0.0);
-                ambika::plugin::SurgeFilter::MeasureResponse (
+                ambika::plugin::MeasureFilterResponse (
                     model, variant, ambika::plugin::AnalogVoice::CutoffToHz (cv), (float) (resonance * 4.0 / 255.0),
                     ambika::plugin::Engine::kNativeSampleRate * ambika::plugin::Engine::kOversampling,
                     frequencies.data(), surgeCurve.data(), kSurgePoints);

@@ -14,6 +14,7 @@
 #include "Controls.h"
 #include "EurekaLookAndFeel.h"
 #include "PluginEditor.h"
+#include "filter_models.h"
 #include "Skin.h"
 #include "PluginProcessor.h"
 
@@ -110,11 +111,12 @@ namespace
         processor.presets().setDirectory (juce::File::createTempFile ("eureka-template-presets"));
         processor.setPlayConfigDetails (0, 2, 48000.0, 512);
         processor.prepareToPlay (48000.0, 512);
-        const char* pages[] = { "synth", "mod", "multi", "presets" };
+        const char* pages[] = { "synth", "mod", "multi", "presets", "seq" };
+        processor.setEditorScale (1.0f);  // Design size, whatever the user's preference.
         {
             std::unique_ptr<AmbikaAudioProcessorEditor> editor (
                 dynamic_cast<AmbikaAudioProcessorEditor*> (processor.createEditor()));
-            for (int page = 0; page < 4; ++page)
+            for (int page = 0; page < 5; ++page)
             {
                 editor->showPage (page);
                 juce::MessageManager::getInstance()->runDispatchLoopUntil (60);
@@ -156,7 +158,8 @@ namespace
             "Any file left out falls back to the built-in look.\n\n"
             "background.png        Whole window. Design size 1200 x 802; make it 2400 x 1604 for sharp\n"
             "                      Retina display. Used on every page unless a page has its own:\n"
-            "background-synth.png, background-mod.png, background-multi.png, background-presets.png\n"
+            "background-synth.png, background-mod.png, background-seq.png, background-multi.png,\n"
+            "                      background-presets.png\n"
             "                      Start from background-template.png (empty window) and put\n"
             "                      guide-<page>.png (the whole UI) on a layer above to line things up.\n"
             "                      Panels, labels, knobs and the header controls are drawn by the\n"
@@ -200,6 +203,7 @@ int main (int argc, char** argv)
         chord.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), 0);
     render (processor, chord);
 
+    processor.setEditorScale (1.0f);  // Design size, whatever the user's preference.
     std::unique_ptr<ambika_plugin::AmbikaAudioProcessorEditor> editor (
         dynamic_cast<ambika_plugin::AmbikaAudioProcessorEditor*> (processor.createEditor()));
     const juce::File base { juce::String (argv[1]) };
@@ -217,6 +221,21 @@ int main (int argc, char** argv)
         snapshot (*editor, base, pages[page]);
     }
 
+    // Seq page: part 1 arpeggiating, then playing its note pattern with a
+    // key held (the transport runs, so the steps light up).
+    setParameter (processor, "arp_mode", 1.0f);
+    setParameter (processor, "arp_pattern", 5.0f);
+    setParameter (processor, "arp_octave", 2.0f);
+    editor->showPage (4);
+    snapshot (*editor, base, "seq");
+    setParameter (processor, "arp_mode", 2.0f);
+    setParameter (processor, "pattern_length", 12.0f);
+    juce::MidiBuffer key;
+    key.addEvent (juce::MidiMessage::noteOn (1, 62, (juce::uint8) 100), 0);
+    render (processor, key);
+    snapshot (*editor, base, "seq-pattern");
+    setParameter (processor, "arp_mode", 0.0f);
+
     // Two parts: voices 1-3 on part 1, 4-6 on part 2, a different patch on
     // part 2, notes on both channels.
     for (int v = 0; v < 6; ++v)
@@ -233,6 +252,8 @@ int main (int argc, char** argv)
     render (processor, twoParts);
 
     setParameter (processor, ambika_plugin::partKeyLowId (1), 60.0f);  // Part 2 from C3 up.
+    // Voice 2 on its own output (no bus enabled here: shown as playing on main).
+    setParameter (processor, ambika_plugin::voiceOutputId (1), 1.0f);
     editor->editPart (1);
     editor->showPage (0);
     snapshot (*editor, base, "synth-part2");
@@ -276,12 +297,33 @@ int main (int argc, char** argv)
     editor->showPage (0);
     snapshot (*editor, base, "synth-surge");
 
+    // Ripples (the last model), LP2 output, high resonance.
+    setParameter (processor, "p2_filter_model", (float) ambika::plugin::RipplesFilterModel());
+    setParameter (processor, "p2_filter_variant", 1.0f);
+    setParameter (processor, "p2_filter_cutoff", 64.0f);
+    setParameter (processor, "p2_filter_resonance", 50.0f);
+    snapshot (*editor, base, "synth-ripples");
+    setParameter (processor, "p2_filter_model", 2.0f);
+    setParameter (processor, "p2_filter_variant", 3.0f);
+
     // YAM oscillators: yam_csaw (notch) on osc 1, yam_square with PWM on osc 2.
     setParameter (processor, "p2_osc1_shape", 43.0f);  // yam_csaw
     setParameter (processor, "p2_osc1_parameter", 70.0f);
     setParameter (processor, "p2_osc2_shape", 38.0f);  // yam_square
     setParameter (processor, "p2_osc2_parameter", 60.0f);
     snapshot (*editor, base, "synth-yam");
+    // A host that ignores the aspect ratio (as some Windows hosts do): the
+    // content fits and is centred, nothing is cut off.
+    editor->setResizeLimits (100, 100, 4000, 4000);
+    editor->getConstrainer()->setFixedAspectRatio (0.0);
+    editor->setSize (1500, 700);
+    editor->showPage (0);
+    snapshot (*editor, base, "resized-wide");
+    editor->setSize (900, 900);
+    snapshot (*editor, base, "resized-tall");
+
+    editor->setSize (ambika_plugin::AmbikaAudioProcessorEditor::designWidth,
+                     ambika_plugin::AmbikaAudioProcessorEditor::designHeight);
     editor->showPage (0);
     editor->showSaveDialog();
     snapshot (*editor, base, "save-dialog");

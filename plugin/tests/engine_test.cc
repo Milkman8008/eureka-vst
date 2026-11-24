@@ -12,6 +12,8 @@
 #include "preview.h"
 #include "yam_oscillator.h"
 #include "surge_filter.h"
+#include "filter_models.h"
+#include "ripples_filter.h"
 
 using ambika::plugin::Engine;
 using ambika::plugin::PartSettings;
@@ -602,7 +604,243 @@ void TestYamOscillators() {
   Check(previews, "yam: the oscillator display draws every YAM waveform");
 }
 
+// Notes started on the voicecards while rendering: a card counts as
+// starting a note when its gate opens, or when it moves to a new pitch with
+// its gate open. Rendered in 2 ms chunks.
+struct NoteEvent {
+  double time;
+  int voice;
+  int note;
+};
+
+std::vector<NoteEvent> RenderNotes(Engine& engine, double rate, double seconds,
+                                   std::vector<float>* audio = nullptr) {
+  std::vector<NoteEvent> events;
+  int last_gate[ambika::plugin::kNumVoices] = { 0 };
+  int last_pitch[ambika::plugin::kNumVoices] = { 0 };
+  for (int v = 0; v < ambika::plugin::kNumVoices; ++v) {
+    last_gate[v] = engine.voice(v).gate();
+    last_pitch[v] = engine.voice(v).pitch_target();
+  }
+  const int chunk = static_cast<int>(rate * 0.002);
+  std::vector<float> left(chunk), right(chunk);
+  for (double t = 0.0; t < seconds; t += 0.002) {
+    engine.Render(left.data(), right.data(), chunk);
+    if (audio != nullptr) audio->insert(audio->end(), left.begin(), left.end());
+    for (int v = 0; v < ambika::plugin::kNumVoices; ++v) {
+      const int gate = engine.voice(v).gate();
+      const int pitch = engine.voice(v).pitch_target();
+      if (gate && (!last_gate[v] || pitch != last_pitch[v])) {
+        events.push_back({ t, v, pitch / 128 });
+      }
+      last_gate[v] = gate;
+      last_pitch[v] = pitch;
+    }
+  }
+  return events;
+}
+
+bool AnyGateOpen(const Engine& engine) {
+  for (int v = 0; v < ambika::plugin::kNumVoices; ++v) {
+    if (engine.voice(v).gate()) return true;
+  }
+  return false;
+}
+
+void TestArpeggiatorAndSequencer() {
+  using namespace ambika::plugin;
+  const double rate = 48000.0;
+  const uint8_t all_part_1[kNumVoices] = { 0, 0, 0, 0, 0, 0 };
+
+  // The arpeggiator in both kinds of voice allocation: the part's own
+  // (per part) and the engine's (poly, the plug-in default).
+  for (int mode : { VOICE_MODE_PER_PART, VOICE_MODE_POLY }) {
+    Engine engine;
+    engine.Init(rate);
+    engine.SetVoiceAssignment(all_part_1);
+    engine.SetVoiceMode(static_cast<uint8_t>(mode), 1);
+    engine.SetTempo(120.0);
+    PartSettings settings = engine.part(0).settings();
+    settings.arp_mode = ARP_SEQUENCER_MODE_ARPEGGIATOR;
+    settings.arp_direction = ARPEGGIO_DIRECTION_UP;
+    settings.arp_octave = 2;
+    settings.arp_pattern = 0;   // x.x. x.x. ...: every other step
+    settings.arp_divider = 10;  // 1/16
+    engine.part(0).SetSettings(settings);
+    // Keys pressed in an order other than the arpeggio's.
+    engine.NoteOn(0, 67, 100);
+    engine.NoteOn(0, 60, 100);
+    engine.NoteOn(0, 64, 100);
+    const auto events = RenderNotes(engine, rate, 1.95);
+    const int expected[] = { 60, 64, 67, 72, 76, 79, 60, 64 };
+    bool order = events.size() == 8;
+    for (size_t i = 0; order && i < 8; ++i) order = events[i].note == expected[i];
+    const char* name = mode == VOICE_MODE_POLY ? "poly" : "per part";
+    std::printf("      arp (%s): %zu notes:", name, events.size());
+    for (const auto& e : events) std::printf(" %d@%.3f", e.note, e.time);
+    std::printf("\n");
+    Check(order, mode == VOICE_MODE_POLY ? "arp (poly mode): up over 2 octaves, in pitch order"
+                                         : "arp (per part): up over 2 octaves, in pitch order");
+    // One note per eighth (1/16 steps, every other one) at 120 bpm.
+    bool spacing = events.size() >= 2;
+    for (size_t i = 1; spacing && i < events.size(); ++i) {
+      spacing = std::fabs(events[i].time - events[i - 1].time - 0.25) < 0.004;
+    }
+    Check(spacing, "arp: one note every 1/8 at 120 bpm");
+
+    // Releasing the keys stops it.
+    for (int note : { 60, 64, 67 }) engine.NoteOff(0, note);
+    const auto after = RenderNotes(engine, rate, 1.0);
+    Check(after.empty() && !AnyGateOpen(engine), "arp: stops when the keys are released");
+  }
+
+  // Note pattern, transposed by the key (60 in the pattern = the key).
+  {
+    Engine engine;
+    engine.Init(rate);
+    engine.SetVoiceAssignment(all_part_1);
+    engine.SetVoiceMode(VOICE_MODE_POLY, 1);
+    engine.SetTempo(120.0);
+    PartSettings settings = engine.part(0).settings();
+    settings.arp_mode = ARP_SEQUENCER_MODE_NOTE;
+    settings.sequence_length[2] = 4;
+    const uint8_t notes[4] = { 60, 67, 72, 48 };
+    const uint8_t gates[4] = { 1, 1, 0, 1 };
+    for (int i = 0; i < 4; ++i) {
+      settings.pattern_note[i] = notes[i];
+      settings.pattern_gate[i] = gates[i];
+      settings.pattern_legato[i] = 0;
+    }
+    engine.part(0).SetSettings(settings);
+    engine.NoteOn(0, 62, 100);  // D: the pattern plays a tone up.
+    const auto events = RenderNotes(engine, rate, 0.99);
+    // Steps every 1/16 (125 ms); step 3 has no gate. 8 steps = two loops.
+    const int expected[] = { 62, 69, 50, 62, 69, 50 };
+    bool ok = events.size() == 6;
+    for (size_t i = 0; ok && i < 6; ++i) ok = events[i].note == expected[i];
+    Check(ok, "pattern: steps transposed by the key, rests skipped, loops at its length");
+    engine.NoteOff(0, 62);
+    RenderNotes(engine, rate, 0.3);
+    Check(!AnyGateOpen(engine), "pattern: stops with the key");
+  }
+
+  // Seq 1 / Seq 2 drive their modulation sources, and follow the host's
+  // song position.
+  {
+    Engine engine;
+    engine.Init(rate);
+    engine.SetVoiceAssignment(all_part_1);
+    engine.SetTempo(120.0);
+    PartSettings settings = engine.part(0).settings();
+    for (int i = 0; i < kNumSteps; ++i) settings.step_value[0][i] = static_cast<uint8_t>(i * 16);
+    engine.part(0).SetSettings(settings);
+    // Transport starts at beat 2: 24 ticks = 4 sixteenths in.
+    engine.SetTransport(true, 1.0);
+    std::vector<float> l(96), r(96);
+    engine.Render(l.data(), r.data(), 96);
+    Check(engine.voice(0).modulation_source(ambika::MOD_SRC_SEQ_1) == 4 * 16,
+          "seq 1: starts at the step under the song position");
+    // 1/16 (125 ms) later, the next step.
+    for (int i = 0; i < 6240 / 96; ++i) engine.Render(l.data(), r.data(), 96);
+    Check(engine.voice(0).modulation_source(ambika::MOD_SRC_SEQ_1) == 5 * 16,
+          "seq 1: advances one step per 1/16");
+    // A loop back to the start.
+    engine.SetTransport(true, 0.0);
+    engine.Render(l.data(), r.data(), 96);
+    Check(engine.voice(0).modulation_source(ambika::MOD_SRC_SEQ_1) == 0,
+          "seq 1: jumps with the song position (loop)");
+  }
+
+  // Switching the mode while keys are held leaves no stuck notes.
+  {
+    Engine engine;
+    engine.Init(rate);
+    engine.SetVoiceAssignment(all_part_1);
+    engine.SetVoiceMode(VOICE_MODE_POLY, 1);
+    engine.SetTempo(120.0);
+    PartSettings settings = engine.part(0).settings();
+    settings.arp_mode = ARP_SEQUENCER_MODE_ARPEGGIATOR;
+    settings.arp_direction = ARPEGGIO_DIRECTION_CHORD;
+    engine.part(0).SetSettings(settings);
+    engine.NoteOn(0, 60, 100);
+    engine.NoteOn(0, 64, 100);
+    RenderNotes(engine, rate, 0.3);
+    settings.arp_mode = ARP_SEQUENCER_MODE_STEP;
+    engine.part(0).SetSettings(settings);
+    engine.NoteOff(0, 60);
+    engine.NoteOff(0, 64);
+    RenderNotes(engine, rate, 0.2);
+    Check(!AnyGateOpen(engine), "arp: no stuck notes after switching it off with keys held");
+  }
+}
+
+void TestRipplesFilter() {
+  using namespace ambika::plugin;
+  const double rate = 48000.0;
+  const int ripples = RipplesFilterModel();
+  Check(std::string(FilterModelName(ripples)) == "Ripples" && NumFilterVariants(ripples) == 3 &&
+            FilterVariantName(ripples, 1) == "LP2",
+        "ripples: listed after the Surge filters, with LP4 / LP2 / BP2");
+  Check(GetParameter(0).id != nullptr, "parameters build");
+
+  // Cutoff sweep: a closed filter is darker (quieter) than an open one, and
+  // nothing blows up at full resonance.
+  double rms[2];
+  for (int k = 0; k < 2; ++k) {
+    Engine engine;
+    engine.Init(rate);
+    auto& part = engine.part(0);
+    part.SetPatchValue(kPatchFilterModel, static_cast<uint8_t>(ripples));
+    part.SetPatchValue(ambika::PRM_PATCH_FILTER1_CUTOFF, k == 0 ? 127 : 30);
+    engine.NoteOn(0, 48, 100);
+    const auto stats = Measure(Render(engine, rate, 0.3));
+    rms[k] = stats.rms;
+    Check(stats.finite && stats.peak < 2.0, "ripples: finite, bounded output");
+  }
+  Check(rms[0] > 0.01 && rms[1] < rms[0] * 0.5, "ripples: closing the cutoff darkens the sound");
+
+  {
+    Engine engine;
+    engine.Init(rate);
+    auto& part = engine.part(0);
+    part.SetPatchValue(kPatchFilterModel, static_cast<uint8_t>(ripples));
+    part.SetPatchValue(ambika::PRM_PATCH_FILTER1_RESONANCE, 63);
+    part.SetPatchValue(ambika::PRM_PATCH_FILTER1_CUTOFF, 70);
+    engine.NoteOn(0, 36, 127);
+    const auto stats = Measure(Render(engine, rate, 0.5));
+    Check(stats.finite && stats.peak < 2.0, "ripples: full resonance stays bounded");
+  }
+
+  // The display's small-signal response matches the circuit model: measure
+  // the simulated LP4 at a few frequencies below and around the cutoff.
+  {
+    RipplesFilter filter;
+    const double fs = Engine::kNativeSampleRate * Engine::kOversampling;
+    filter.Init(fs);
+    filter.set_noise(false);
+    const double cutoff = 1000.0;
+    bool close = true;
+    for (double hz : { 200.0, 1000.0, 3000.0 }) {
+      filter.Reset();
+      double in2 = 0.0, out2 = 0.0;
+      const int n = static_cast<int>(fs * 0.4);
+      for (int i = 0; i < n; ++i) {
+        const float x = 0.05f * static_cast<float>(std::sin(2.0 * M_PI * hz * i / fs));
+        const float y = filter.Process(x, cutoff, 0.5f, 0);
+        if (i > n / 2) { in2 += x * x; out2 += y * y; }
+      }
+      const double measured = std::sqrt(out2 / in2);
+      const double predicted = RipplesFilter::Magnitude(hz, cutoff, 0.5f, 0);
+      std::printf("      ripples LP4 at %.0f Hz: simulated %.3f, small-signal %.3f\n", hz, measured, predicted);
+      close = close && std::fabs(20.0 * std::log10(measured / predicted)) < 1.0;
+    }
+    Check(close, "ripples: display response within 1 dB of the simulation");
+  }
+}
+
 int main() {
+  TestArpeggiatorAndSequencer();
+  TestRipplesFilter();
   TestSilenceAndNote(44100.0);
   TestSilenceAndNote(48000.0);
   TestSilenceAndNote(96000.0);

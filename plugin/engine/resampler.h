@@ -18,6 +18,10 @@ class Resampler {
  public:
   void Init(double input_rate, double output_rate);
   void Reset();
+  // Empties the buffer and takes other's read/write positions, so this
+  // resampler stays sample-aligned with other from now on (both must have
+  // been initialised with the same rates).
+  void SyncTo(const Resampler& other);
 
   // Input side.
   void Push(const float* samples, int count);
