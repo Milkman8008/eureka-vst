@@ -2,6 +2,7 @@
 
 #include "PresetBrowser.h"
 #include "SequencerPage.h"
+#include "filter_models.h"
 #include "Skin.h"
 
 namespace ambika_plugin
@@ -101,6 +102,8 @@ namespace ambika_plugin
         filter = &panel ("Filter");
         filterDisplay = &display<FilterDisplay> (*filter, state);
         filterModel = &control (*filter, "filter_model", "Model", CS::Combo);
+        // Ripples (the default) first, then the Ambika SVF, then Surge.
+        filterModel->setChoiceOrder (ambika::plugin::FilterModelMenuOrder());
         filterVariant = &display<FilterVariantControl> (*filter, state);
         filterModelReader = std::make_unique<ParameterReader> (state, std::vector<juce::String> { "filter_model" });
         filterControls = { &control (*filter, "filter_cutoff", "Frequency", CS::Knob),
@@ -1157,18 +1160,30 @@ namespace ambika_plugin
         setLookAndFeel (&lookAndFeel);
         buildContent (0);
 
-        setResizable (true, true);
-        setResizeLimits (juce::roundToInt (designWidth * minScale), juce::roundToInt (designHeight * minScale),
-                         juce::roundToInt (designWidth * maxScale), juce::roundToInt (designHeight * maxScale));
-        getConstrainer()->setFixedAspectRatio ((double) designWidth / designHeight);
-        // The project's size, else the size last used anywhere.
+        // The project's size, else the size last used anywhere. Read before
+        // setResizeLimits(), which already resizes this (still 0 x 0) editor
+        // to the minimum size.
         float scale = audioProcessor.editorScale();
         if (scale <= 0.0f)
             scale = loadScalePreference();
         scale = juce::jlimit (minScale, maxScale, scale);
         openedScale = scale;
+
+        setResizable (true, true);
+        setResizeLimits (juce::roundToInt (designWidth * minScale), juce::roundToInt (designHeight * minScale),
+                         juce::roundToInt (designWidth * maxScale), juce::roundToInt (designHeight * maxScale));
+        getConstrainer()->setFixedAspectRatio ((double) designWidth / designHeight);
         setSize (juce::roundToInt (designWidth * scale), juce::roundToInt (designHeight * scale));
+        // From now on, sizes are the user's (or the host's) and are remembered.
+        sizeIsSet = true;
+        audioProcessor.setEditorScale (currentScale());
         startTimerHz (30);
+    }
+
+    float AmbikaAudioProcessorEditor::currentScale() const
+    {
+        // Fit both dimensions (see resized()).
+        return juce::jmin ((float) getWidth() / (float) designWidth, (float) getHeight() / (float) designHeight);
     }
 
     void AmbikaAudioProcessorEditor::setScale (float scale)
@@ -1222,12 +1237,12 @@ namespace ambika_plugin
         // Fit both dimensions and centre: some hosts (several on Windows)
         // resize the window without asking the plug-in's constrainer, and
         // scaling by the width alone then cuts off the bottom.
-        const float scale = juce::jmin ((float) getWidth() / (float) designWidth,
-                                        (float) getHeight() / (float) designHeight);
+        const float scale = currentScale();
         const float x = ((float) getWidth() - (float) designWidth * scale) * 0.5f;
         const float y = ((float) getHeight() - (float) designHeight * scale) * 0.5f;
         content->setTransform (juce::AffineTransform::scale (scale).translated (x, y));
-        audioProcessor.setEditorScale (scale);
+        if (sizeIsSet)
+            audioProcessor.setEditorScale (scale);
     }
 
     void AmbikaAudioProcessorEditor::showPage (int index)

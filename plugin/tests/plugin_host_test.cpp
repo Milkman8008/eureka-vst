@@ -208,14 +208,81 @@ int main (int argc, char** argv)
         check (mainAgain[0] > 1.0 && mainAgain[1] < 1e-9, "voice set to main leaves its bus silent");
     }
 
-    // Editor.
-    std::unique_ptr<juce::AudioProcessorEditor> editor (plugin->createEditorIfNeeded());
-    check (editor != nullptr, "editor opens");
-    if (editor != nullptr)
+    // Editor, in a window on screen as a DAW shows it.
+    struct OpenEditor
     {
-        std::printf ("      editor size: %d x %d\n", editor->getWidth(), editor->getHeight());
-        plugin->editorBeingDeleted (editor.get());
-        editor.reset();
+        juce::AudioPluginInstance& plugin;
+        std::unique_ptr<juce::AudioProcessorEditor> editor;
+        std::unique_ptr<juce::DocumentWindow> window;
+
+        explicit OpenEditor (juce::AudioPluginInstance& p) : plugin (p)
+        {
+            editor.reset (plugin.createEditorIfNeeded());
+            if (editor == nullptr)
+                return;
+            window = std::make_unique<juce::DocumentWindow> ("eureka!", juce::Colours::black, 0, true);
+            window->setUsingNativeTitleBar (true);
+            window->setContentNonOwned (editor.get(), true);
+            window->setVisible (true);
+            settle();
+        }
+        ~OpenEditor()
+        {
+            if (window != nullptr)
+                window->clearContentComponent();
+            window.reset();
+            if (editor != nullptr)
+                plugin.editorBeingDeleted (editor.get());
+            editor.reset();
+            settle();
+        }
+        static void settle() { juce::MessageManager::getInstance()->runDispatchLoopUntil (300); }
+    };
+
+    int openedWidth = 0;
+    {
+        OpenEditor open (*plugin);
+        check (open.editor != nullptr, "editor opens");
+        if (open.editor != nullptr)
+        {
+            openedWidth = open.editor->getWidth();
+            std::printf ("      editor size: %d x %d\n", open.editor->getWidth(), open.editor->getHeight());
+            // The user drags the window larger (125%).
+            open.editor->setSize (1500, 1003);
+            OpenEditor::settle();
+            std::printf ("      resized to: %d x %d\n", open.editor->getWidth(), open.editor->getHeight());
+        }
+    }
+    juce::MemoryBlock withSize;
+    {
+        OpenEditor open (*plugin);
+        const int width = open.editor != nullptr ? open.editor->getWidth() : 0;
+        check (std::abs (width - 1500) <= 2,
+               juce::String::formatted ("reopened editor keeps its size (%d, expected 1500)", width));
+        plugin->getStateInformation (withSize);
+    }
+    {
+        // A new instance loading the project.
+        juce::String error2;
+        auto reloaded = formats.createPluginInstance (description, rate, blockSize, error2);
+        if (reloaded != nullptr)
+        {
+            reloaded->setStateInformation (withSize.getData(), (int) withSize.getSize());
+            OpenEditor open (*reloaded);
+            const int width = open.editor != nullptr ? open.editor->getWidth() : 0;
+            check (std::abs (width - 1500) <= 2,
+                   juce::String::formatted ("a reloaded project opens at its saved size (%d, expected 1500)", width));
+        }
+    }
+    {
+        // Back to the size this machine had, so the test leaves the user's
+        // window size preference as it was.
+        OpenEditor open (*plugin);
+        if (open.editor != nullptr && openedWidth > 0)
+        {
+            open.editor->setSize (openedWidth, juce::roundToInt (openedWidth * 802.0 / 1200.0));
+            OpenEditor::settle();
+        }
     }
 
     plugin->releaseResources();

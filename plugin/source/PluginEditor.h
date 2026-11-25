@@ -172,6 +172,8 @@ namespace ambika_plugin
         std::unique_ptr<Content> content;
         juce::Component::SafePointer<juce::CallOutBox> highlightBox;
         float openedScale = 1.0f;
+        bool sizeIsSet = false;  // False while the constructor sizes the window.
+        float currentScale() const;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AmbikaAudioProcessorEditor)
     };

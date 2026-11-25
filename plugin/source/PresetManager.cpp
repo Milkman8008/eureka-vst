@@ -1,5 +1,7 @@
 #include "PresetManager.h"
 
+#include "filter_models.h"
+
 #include "EurekaFactory.h"
 
 namespace ambika_plugin
@@ -187,6 +189,8 @@ namespace ambika_plugin
             const auto& info = ambika::plugin::GetParameter (i);
             if (parameters.hasProperty (info.id))
                 values[(size_t) i] = (int) parameters.getProperty (info.id, info.default_value);
+            else if (juce::String (info.id) == "filter_model")
+                values[(size_t) i] = ambika::plugin::kFilterModelAmbika;  // Saved before filter models existed.
         }
         applyValues (part, values);
 

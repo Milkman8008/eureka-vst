@@ -52,12 +52,14 @@ standalone app for macOS, and as VST3 and a standalone app for Windows.
   modulation sources) and note pattern, in sync with your DAW. See
   [Seq page](#seq-page-arpeggiator-and-sequencer).
 - **Ripples filter**: a model of the Mutable Instruments Ripples analog
-  filter, with LP4, LP2 and BP2 outputs.
+  filter, with LP4, LP2 and BP2 outputs. It is the default filter for new
+  sounds.
 - **Separate outputs**: send any voice to its own stereo output in your DAW
   (Multi page, **Output** on each voice card).
 - **Window size**: resizing works in every host (including on Windows), the
   size is remembered, and right-clicking the background offers fixed sizes.
-  See [Window size](#window-size).
+  See [Window size](#window-size). (Fixed since the first release of these
+  features: the window no longer reopens at the smallest size.)
 - Ambika programs and multis now import their sequences, and `.SEQ` files
   load into a part.
 
@@ -136,7 +138,9 @@ means it has changed since it was loaded or saved.
   - `yam_vowel2`: the vowel oscillator without its phase noise
 - **Mixer**: oscillator balance, cross-modulation (sum, sync, ring mod, xor,
   fold, bits), sub-oscillator, noise, fuzz and bit crush.
-- **Filter**: choose the **Model**:
+- **Filter**: choose the **Model** (new sounds start with Ripples; sounds
+  from earlier versions and Ambika files keep the Ambika SVF):
+  - **Ripples**: see below.
   - **Ambika SVF**: low-pass, band-pass or high-pass.
   - **Surge filters**, chosen with **Model**:
     - MULTI Xpander
@@ -149,7 +153,7 @@ means it has changed since it was loaded or saved.
     - FX Cutoff Warp AP
 
     **Variant** picks the filter's flavour.
-  - **Ripples**: a circuit model of the Mutable Instruments Ripples, a
+  - **Ripples** (the default): a circuit model of the Mutable Instruments Ripples, a
     4-pole analog filter that self-oscillates at high resonance (about three
     quarters up). **Variant** picks its output: LP4 (24 dB low-pass), LP2
     (12 dB low-pass) or BP2 (band-pass). As on the module, raising the

@@ -782,6 +782,12 @@ void TestRipplesFilter() {
             FilterVariantName(ripples, 1) == "LP2",
         "ripples: listed after the Surge filters, with LP4 / LP2 / BP2");
   Check(GetParameter(0).id != nullptr, "parameters build");
+  Check(reinterpret_cast<const uint8_t*>(&DefaultPatch())[kPatchFilterModel] == ripples,
+        "ripples: the default patch uses it");
+  const auto order = FilterModelMenuOrder();
+  Check(order.size() == static_cast<size_t>(NumFilterModels()) && order[0] == ripples &&
+            order[1] == kFilterModelAmbika && order[2] == 1,
+        "ripples: menu lists Ripples, then the Ambika SVF, then Surge");
 
   // Cutoff sweep: a closed filter is darker (quieter) than an open one, and
   // nothing blows up at full resonance.

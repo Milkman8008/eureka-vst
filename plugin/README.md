@@ -137,7 +137,14 @@ Each part chooses its filter on the Synth page:
   against the simulation (within 1 dB). Six voices cost about 11% of one
   core on an Apple M-series machine.
 
-The model list is `engine/filter_models.*`.
+The model list is `engine/filter_models.*`. Ripples is the default for new
+patches (`DefaultPatch()`, so also Init and new instances), and the editor's
+Model menu lists Ripples, the Ambika SVF, then the Surge filters
+(`FilterModelMenuOrder()`); the stored model numbers and the host
+parameter's choice order are unchanged. Content without a stored model keeps
+the Ambika SVF: Ambika patches (their padding byte is 0), presets without a
+`filter_model` value, and projects whose state has no `filter_model`
+parameter (`setStateInformation` adds it as 0).
 
 The firmware's cutoff, resonance, envelope 2 and LFO 2 amounts, key tracking
 and modulation matrix drive whichever filter is selected. The model and

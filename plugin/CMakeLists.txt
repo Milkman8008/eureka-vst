@@ -338,6 +338,7 @@ if(AMBIKA_BUILD_PLUGIN)
 		target_sources(ambika_plugin_host_test PRIVATE tests/plugin_host_test.cpp)
 		target_compile_definitions(ambika_plugin_host_test PRIVATE
 			JUCE_PLUGINHOST_VST3=1
+			JUCE_MODAL_LOOPS_PERMITTED=1
 			JUCE_WEB_BROWSER=0
 			JUCE_USE_CURL=0)
 		target_link_libraries(ambika_plugin_host_test PRIVATE

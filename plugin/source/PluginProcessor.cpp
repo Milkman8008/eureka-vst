@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 
 #include "PluginEditor.h"
+#include "filter_models.h"
 
 #include <climits>
 
@@ -337,6 +338,17 @@ namespace ambika_plugin
             if (xml->hasTagName (state.state.getType()))
             {
                 auto tree = juce::ValueTree::fromXml (*xml);
+                // Projects saved before filter models existed played the
+                // Ambika SVF; without a stored value they would get the
+                // default for new patches (Ripples).
+                for (int part = 0; part < kNumParts; ++part)
+                {
+                    const auto id = partParameterId (part, juce::String ("filter_model"));
+                    if (! tree.getChildWithProperty ("id", id).isValid())
+                        tree.appendChild (juce::ValueTree ("PARAM", { { "id", id },
+                                                                      { "value", ambika::plugin::kFilterModelAmbika } }),
+                                          nullptr);
+                }
                 setEditedPart (tree.getProperty ("editedPart", 0));
                 setEditorScale ((float) tree.getProperty ("editorScale", 0.0f));
                 // Version 1 states have no multi parameters; replaceState leaves

@@ -73,12 +73,33 @@ namespace ambika_plugin
     {
         sliderAttachment.reset();
         comboAttachment.reset();
+        orderedAttachment.reset();
+        attachedId = fullId;
         auto* parameter = state.getParameter (fullId);
         jassert (parameter != nullptr);
         if (combo != nullptr)
         {
+            combo->onChange = nullptr;
             combo->clear (juce::dontSendNotification);
-            if (auto* choice = dynamic_cast<juce::AudioParameterChoice*> (parameter))
+            auto* choice = dynamic_cast<juce::AudioParameterChoice*> (parameter);
+            if (choice != nullptr && ! choiceOrder.empty())
+            {
+                // Item IDs stay choice index + 1; only the listing order differs.
+                for (int index : choiceOrder)
+                    if (juce::isPositiveAndBelow (index, choice->choices.size()))
+                        combo->addItem (choice->choices[index], index + 1);
+                orderedAttachment = std::make_unique<juce::ParameterAttachment> (
+                    *parameter, [this] (float value)
+                    { combo->setSelectedId (juce::roundToInt (value) + 1, juce::dontSendNotification); });
+                combo->onChange = [this]
+                {
+                    if (orderedAttachment != nullptr && combo->getSelectedId() > 0)
+                        orderedAttachment->setValueAsCompleteGesture ((float) (combo->getSelectedId() - 1));
+                };
+                orderedAttachment->sendInitialUpdate();
+                return;
+            }
+            if (choice != nullptr)
                 combo->addItemList (choice->choices, 1);
             comboAttachment = std::make_unique<APVTS::ComboBoxAttachment> (state, fullId, *combo);
         }
@@ -88,6 +109,13 @@ namespace ambika_plugin
             // Double-click returns to the default value.
             slider->setDoubleClickReturnValue (true, parameter->convertFrom0to1 (parameter->getDefaultValue()));
         }
+    }
+
+    void ParameterControl::setChoiceOrder (std::vector<int> order)
+    {
+        choiceOrder = std::move (order);
+        if (attachedId.isNotEmpty())
+            attach (attachedId);
     }
 
     void ParameterControl::bindPart (int part)

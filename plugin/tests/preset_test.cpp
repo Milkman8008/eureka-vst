@@ -6,6 +6,7 @@
 #include <cstdio>
 
 #include "PluginProcessor.h"
+#include "filter_models.h"
 
 using namespace ambika_plugin;
 
@@ -44,6 +45,42 @@ int main()
     presets.setUseTrash (false);
 
     check (presets.presetName (0) == "Init" && ! presets.isModified (0), "fresh parts are \"Init\" and unmodified");
+
+    // ---- Filter model: Ripples for new sounds, the SVF for older content ---
+    {
+        const float ripples = (float) ambika::plugin::RipplesFilterModel();
+        check (get (processor, "filter_model") == ripples && get (processor, "p6_filter_model") == ripples,
+               "new parts use the Ripples filter");
+        set (processor, "p6_filter_model", 2.0f);
+        presets.initialise (5);
+        check (get (processor, "p6_filter_model") == ripples, "Init sets the Ripples filter");
+
+        // A preset written before the filter model existed.
+        const auto old = dir.getChildFile ("Old Preset.eurekapreset");
+        old.replaceWithText (R"({"format": "eureka-preset", "version": 1, "name": "Old Preset",
+                                "parameters": {"filter_cutoff": 50}})");
+        check (presets.load (5, old).wasOk() && get (processor, "p6_filter_model") == 0.0f
+                   && get (processor, "p6_filter_cutoff") == 50.0f,
+               "a preset without a filter model loads with the Ambika SVF");
+        old.deleteFile();
+
+        // A project saved before the filter model existed.
+        juce::MemoryBlock saved;
+        processor.getStateInformation (saved);
+        auto xml = juce::AudioProcessor::getXmlFromBinary (saved.getData(), (int) saved.getSize());
+        auto tree = juce::ValueTree::fromXml (*xml);
+        for (int part = 0; part < kNumParts; ++part)
+            tree.removeChild (tree.getChildWithProperty ("id", partParameterId (part, juce::String ("filter_model"))), nullptr);
+        set (processor, "p3_filter_model", ripples);
+        juce::MemoryBlock oldProject;
+        juce::AudioProcessor::copyXmlToBinary (*tree.createXml(), oldProject);
+        processor.setStateInformation (oldProject.getData(), (int) oldProject.getSize());
+        check (get (processor, "p3_filter_model") == 0.0f, "a project without filter models loads with the Ambika SVF");
+        processor.setStateInformation (saved.getData(), (int) saved.getSize());
+        check (get (processor, "filter_model") == ripples, "a project with filter models keeps them");
+        presets.initialise (2);
+        presets.initialise (5);
+    }
 
     // Edit part 1 and save it.
     set (processor, "filter_cutoff", 20.0f);

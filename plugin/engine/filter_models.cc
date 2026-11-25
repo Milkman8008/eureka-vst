@@ -12,6 +12,14 @@ int RipplesFilterModel() { return SurgeFilter::NumModels() + 1; }
 
 int NumFilterModels() { return RipplesFilterModel() + 1; }
 
+std::vector<int> FilterModelMenuOrder() {
+  std::vector<int> order { RipplesFilterModel(), kFilterModelAmbika };
+  for (int model = 1; model <= SurgeFilter::NumModels(); ++model) {
+    order.push_back(model);
+  }
+  return order;
+}
+
 bool IsSurgeFilterModel(int model) {
   return model >= 1 && model <= SurgeFilter::NumModels();
 }

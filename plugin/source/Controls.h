@@ -30,6 +30,9 @@ namespace ambika_plugin
 
         void bindPart (int part);
         void resized() override;
+        // Combo only: list the choices in this order (choice indices) instead
+        // of the parameter's own order.
+        void setChoiceOrder (std::vector<int> order);
 
     private:
         void attach (const juce::String& fullId);
@@ -43,6 +46,9 @@ namespace ambika_plugin
         std::unique_ptr<juce::ComboBox> combo;
         std::unique_ptr<APVTS::SliderAttachment> sliderAttachment;
         std::unique_ptr<APVTS::ComboBoxAttachment> comboAttachment;
+        std::vector<int> choiceOrder;
+        juce::String attachedId;
+        std::unique_ptr<juce::ParameterAttachment> orderedAttachment;
     };
 
     // Reads current engine values of a set of parameters, for displays.

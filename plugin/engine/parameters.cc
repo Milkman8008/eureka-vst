@@ -405,6 +405,9 @@ const Patch& DefaultPatch() {
   static const Patch patch = [] {
     Patch p;
     ResourcesManager::Load(&init_patch, 0, &p);
+    // New patches use the Ripples filter (an Ambika patch's padding byte,
+    // 0, still means the Ambika SVF).
+    reinterpret_cast<uint8_t*>(&p)[kPatchFilterModel] = static_cast<uint8_t>(RipplesFilterModel());
     return p;
   }();
   return patch;

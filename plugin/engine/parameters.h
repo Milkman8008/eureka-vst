@@ -75,7 +75,8 @@ const ParameterInfo& GetParameter(int index);
 // through unchanged; the voicecard never reads them.
 uint8_t ClampPatchByte(uint8_t address, uint8_t value);
 
-// The controller's default patch (init_patch in controller/part.cc).
+// The default patch for new sounds: the controller's init_patch
+// (controller/part.cc) with the Ripples filter.
 const Patch& DefaultPatch();
 
 // Reads/writes a part setting by field.

@@ -10,6 +10,7 @@
 #define AMBIKA_PLUGIN_FILTER_MODELS_H_
 
 #include <string>
+#include <vector>
 
 namespace ambika {
 namespace plugin {
@@ -17,6 +18,9 @@ namespace plugin {
 static const int kFilterModelAmbika = 0;
 
 int NumFilterModels();          // Including the Ambika SVF: models 0..N-1.
+// The models in the order the editor's menu lists them: Ripples (the
+// default for new patches), the Ambika SVF, then the Surge filters.
+std::vector<int> FilterModelMenuOrder();
 int RipplesFilterModel();       // The Ripples model number.
 bool IsSurgeFilterModel(int model);
 const char* FilterModelName(int model);
