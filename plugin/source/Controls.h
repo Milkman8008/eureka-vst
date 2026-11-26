@@ -104,8 +104,9 @@ namespace ambika_plugin
         std::array<int, 5> surgeCurveKey { -1, -1, -1, -1, -1 };
     };
 
-    // Variant menu for the filter: its entries are the subtypes of the
-    // selected Surge model, so it is rebuilt when the model changes.
+    // Variant menu for the filter, rebuilt when the model changes: the
+    // subtypes of a Surge model, the Ripples outputs, or for the Ambika SVF
+    // its LP/BP/HP mode (stored in filter_mode, as on the Ambika).
     class FilterVariantControl final : public Display
     {
     public:
@@ -115,6 +116,9 @@ namespace ambika_plugin
         void refresh();
 
     private:
+        // The parameter the menu edits for the shown model.
+        juce::String targetId() const;
+        int targetValue() const;
         APVTS& state;
         int part = 0;
         int shownModel = -1;

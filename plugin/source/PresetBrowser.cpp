@@ -107,23 +107,40 @@ namespace ambika_plugin
 
     void PresetDialog::openForSave()
     {
-        mode = Mode::Save;
         const int part = context.editedPart();
         auto& presets = context.presets;
-        title.setText ("Save part " + juce::String (part + 1) + " as preset", juce::dontSendNotification);
         const auto current = presets.presetName (part);
-        name.setText (current == "Init" ? juce::String() : current, juce::dontSendNotification);
-        juce::StringArray extra;
         auto tags = presets.presetTags (part);
         tags.removeString ("Factory");  // A saved copy is the user's own.
+        openForm (Mode::Save, "Save part " + juce::String (part + 1) + " as preset",
+                  current == "Init" ? juce::String() : current, tags, presets.presetAuthor (part),
+                  presets.presetComment (part));
+    }
+
+    void PresetDialog::openForSaveMulti()
+    {
+        auto& presets = context.presets;
+        openForm (Mode::SaveMulti, "Save multi: all six parts and the voice setup", presets.multiName(),
+                  presets.multiTags(), presets.multiAuthor(), presets.multiComment());
+    }
+
+    void PresetDialog::openForm (Mode newMode, const juce::String& heading, const juce::String& initialName,
+                                 const juce::StringArray& tags, const juce::String& initialAuthor,
+                                 const juce::String& initialComment)
+    {
+        mode = newMode;
+        title.setText (heading, juce::dontSendNotification);
+        name.setTextToShowWhenEmpty (mode == Mode::SaveMulti ? "Multi name" : "Preset name", Palette::faintText);
+        name.setText (initialName, juce::dontSendNotification);
+        juce::StringArray extra;
         for (auto& chip : tagButtons)
             chip->setToggleState (tags.contains (chip->getButtonText(), true), juce::dontSendNotification);
         for (const auto& tag : tags)
             if (! PresetManager::standardTags().contains (tag, true))
                 extra.add (tag);
         extraTags.setText (extra.joinIntoString (", "), juce::dontSendNotification);
-        author.setText (presets.presetAuthor (part), juce::dontSendNotification);
-        comment.setText (presets.presetComment (part), juce::dontSendNotification);
+        author.setText (initialAuthor, juce::dontSendNotification);
+        comment.setText (initialComment, juce::dontSendNotification);
         for (juce::Component* c : { (juce::Component*) &tagsLabel, (juce::Component*) &extraTagsLabel,
                                     (juce::Component*) &authorLabel, (juce::Component*) &commentLabel,
                                     (juce::Component*) &extraTags, (juce::Component*) &author,
@@ -143,7 +160,7 @@ namespace ambika_plugin
     {
         mode = Mode::Rename;
         renaming = preset;
-        title.setText ("Rename preset", juce::dontSendNotification);
+        title.setText (preset.multi ? "Rename multi" : "Rename preset", juce::dontSendNotification);
         name.setText (preset.name, juce::dontSendNotification);
         for (juce::Component* c : { (juce::Component*) &tagsLabel, (juce::Component*) &extraTagsLabel,
                                     (juce::Component*) &authorLabel, (juce::Component*) &commentLabel,
@@ -173,18 +190,23 @@ namespace ambika_plugin
 
     void PresetDialog::updateWarning()
     {
-        const auto file = context.presets.fileForName (name.getText());
+        const bool multi = mode == Mode::SaveMulti || (mode == Mode::Rename && renaming.multi);
+        const auto file = multi ? context.presets.multiFileForName (name.getText())
+                                                  : context.presets.fileForName (name.getText());
         const bool clash = name.getText().trim().isNotEmpty() && file.existsAsFile()
                            && ! (mode == Mode::Rename && file == renaming.file);
-        if (mode == Mode::Save)
+        if (mode != Mode::Rename)
         {
-            warning.setText (clash ? "A preset with this name exists. Saving will replace it." : juce::String(),
+            warning.setText (clash ? (mode == Mode::SaveMulti ? "A multi with this name exists. Saving will replace it."
+                                                              : "A preset with this name exists. Saving will replace it.")
+                                   : juce::String(),
                              juce::dontSendNotification);
             confirmButton.setButtonText (clash ? "Replace" : "Save");
         }
         else
         {
-            warning.setText (clash ? "Another preset already has this name." : juce::String(),
+            warning.setText (clash ? (multi ? "Another multi already has this name." : "Another preset already has this name.")
+                                   : juce::String(),
                              juce::dontSendNotification);
             confirmButton.setButtonText ("Rename");
         }
@@ -203,6 +225,13 @@ namespace ambika_plugin
                                    comment.getText(), true);
             if (result.wasOk())
                 context.notify ("Saved \"" + name.getText().trim() + "\"", false);
+        }
+        else if (mode == Mode::SaveMulti)
+        {
+            result = presets.saveMulti (name.getText(), selectedTags(), author.getText(), comment.getText(), true);
+            if (result.wasOk())
+                context.notify ("Saved multi \"" + name.getText().trim() + "\" (all six parts and the voice setup)",
+                                false);
         }
         else
         {
@@ -236,7 +265,7 @@ namespace ambika_plugin
 
     juce::Rectangle<int> PresetDialog::card() const
     {
-        const int height = mode == Mode::Save ? 410 : 200;
+        const int height = mode != Mode::Rename ? 410 : 200;
         return getLocalBounds().withSizeKeepingCentre (580, height);
     }
 
@@ -263,7 +292,7 @@ namespace ambika_plugin
             c.removeFromTop (10);
         };
         row (nameLabel, name);
-        if (mode == Mode::Save)
+        if (mode != Mode::Rename)
         {
             auto tagsArea = c.removeFromTop (64);
             tagsLabel.setBounds (tagsArea.removeFromLeft (96).withHeight (26));
@@ -289,6 +318,8 @@ namespace ambika_plugin
         browse.setTooltip ("Browse, load, rename and delete presets");
         save.setTooltip ("Save over the current preset (or name a new one)");
         saveAs.setTooltip ("Save as a new preset with a name and tags");
+        saveMulti.setTooltip ("Save everything as one multi: all six parts as they are now, plus the voice cards, "
+                              "voice mode, unison, key splits and outputs");
         init.setTooltip ("Reset this part, or everything including the voice routing");
 
         previous.onClick = [this] { step (-1); };
@@ -296,6 +327,7 @@ namespace ambika_plugin
         browse.onClick = std::move (toggleBrowser);
         save.onClick = [this] { quickSave(); };
         saveAs.onClick = [this] { dialog.openForSave(); };
+        saveMulti.onClick = [this] { dialog.openForSaveMulti(); };
         init.onClick = [this]
         {
             // Init the edited part, or everything including the voice routing.
@@ -323,7 +355,7 @@ namespace ambika_plugin
                                     }
                                 });
         };
-        for (auto* b : { &previous, &next, &browse, &save, &saveAs, &init })
+        for (auto* b : { &previous, &next, &browse, &save, &saveAs, &saveMulti, &init })
             addAndMakeVisible (*b);
     }
 
@@ -421,6 +453,8 @@ namespace ambika_plugin
     {
         auto area = getLocalBounds().reduced (16, 6);
         init.setBounds (area.removeFromRight (64));
+        area.removeFromRight (6);
+        saveMulti.setBounds (area.removeFromRight (106));
         area.removeFromRight (6);
         saveAs.setBounds (area.removeFromRight (92));
         area.removeFromRight (6);
@@ -620,7 +654,9 @@ namespace ambika_plugin
         if (auto* p = selected())
         {
             const auto result = context.presets.load (context.editedPart(), p->file);
-            context.notify (result.wasOk() ? "Loaded \"" + p->name + "\" into part " + juce::String (context.editedPart() + 1)
+            const auto where = p->multi ? juce::String (" (all parts and the voice setup)")
+                                        : " into part " + juce::String (context.editedPart() + 1);
+            context.notify (result.wasOk() ? "Loaded " + juce::String (p->multi ? "multi " : "") + "\"" + p->name + "\"" + where
                                            : result.getErrorMessage(),
                             result.failed());
             list.repaint();
@@ -645,7 +681,8 @@ namespace ambika_plugin
             g.setColour (Palette::panelRaised.withAlpha (0.5f));
             g.fillRoundedRectangle (area.toFloat(), 5.0f);
         }
-        const bool loaded = preset.file == context.presets.presetFile (context.editedPart());
+        const bool loaded = preset.file == (preset.multi ? context.presets.multiFile()
+                                                         : context.presets.presetFile (context.editedPart()));
         if (loaded)
         {
             g.setColour (accentOf (*this));
@@ -748,6 +785,21 @@ namespace ambika_plugin
             line ("Author", p->author);
             line ("Saved", p->modified.toString (true, true, false));
             line ("File", p->file.getFileName());
+            if (p->multi)
+            {
+                d.removeFromTop (8);
+                g.setColour (Palette::dimText);
+                g.drawText ("Loads all six parts and the voice setup:", d.removeFromTop (20),
+                            juce::Justification::centredLeft, true);
+                for (int part = 0; part < p->partNames.size(); ++part)
+                {
+                    auto r = d.removeFromTop (20);
+                    g.setColour (Palette::part (part));
+                    g.drawText ("Part " + juce::String (part + 1), r.removeFromLeft (70), juce::Justification::centredLeft);
+                    g.setColour (Palette::text);
+                    g.drawText (p->partNames[part], r, juce::Justification::centredLeft, true);
+                }
+            }
             if (p->comment.isNotEmpty())
             {
                 d.removeFromTop (8);
@@ -760,7 +812,7 @@ namespace ambika_plugin
             g.setColour (Palette::faintText);
             g.setFont (juce::Font (eurekaFont (12.5f)));
             g.drawFittedText ("Select a preset to see its details.\nDouble-click to load it into part "
-                                  + juce::String (context.editedPart() + 1) + ".",
+                                  + juce::String (context.editedPart() + 1) + " (a multi loads all parts).",
                               d.removeFromTop (60), juce::Justification::topLeft, 3);
         }
     }

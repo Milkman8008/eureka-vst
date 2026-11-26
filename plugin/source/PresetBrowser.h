@@ -21,14 +21,15 @@ namespace ambika_plugin
     };
 
     // Name / tags / author / comment form, shown over the editor. Used for
-    // "Save as" and "Rename".
+    // "Save as", "Save multi" and "Rename".
     class PresetDialog final : public juce::Component
     {
     public:
-        enum class Mode { Save, Rename };
+        enum class Mode { Save, SaveMulti, Rename };
 
         explicit PresetDialog (PresetContext&);
         void openForSave();
+        void openForSaveMulti();
         void openForRename (const PresetInfo& preset);
 
         void paint (juce::Graphics&) override;
@@ -36,6 +37,8 @@ namespace ambika_plugin
         bool keyPressed (const juce::KeyPress&) override;
 
     private:
+        void openForm (Mode, const juce::String& heading, const juce::String& initialName, const juce::StringArray& tags,
+                       const juce::String& initialAuthor, const juce::String& initialComment);
         void updateWarning();
         void confirm();
         void close();
@@ -68,7 +71,7 @@ namespace ambika_plugin
         PresetContext& context;
         PresetDialog& dialog;
         juce::TextButton previous { "<" }, next { ">" }, browse { "Browse" }, save { "Save" },
-            saveAs { "Save as..." }, init { "Init" };
+            saveAs { "Save as..." }, saveMulti { "Save multi..." }, init { "Init" };
         juce::String shownName;
         juce::StringArray shownTags;
         bool shownModified = false;

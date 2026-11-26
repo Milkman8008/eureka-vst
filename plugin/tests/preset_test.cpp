@@ -3,6 +3,7 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+#include <cmath>
 #include <cstdio>
 
 #include "PluginProcessor.h"
@@ -361,6 +362,103 @@ int main()
     check (! importedAlt.isEmpty() && presets.load (5, importedAlt[0]).wasOk(),
            "an imported preset loads like any other");
     juce::ignoreUnused (imported);
+
+    // ---- Multis: the whole instrument in one file --------------------------
+    {
+        // A setup worth keeping: every part different, a saved preset in
+        // part 1 that is then tweaked, a split and voice routing.
+        for (int part = 0; part < kNumParts; ++part)
+        {
+            set (processor, partParameterId (part, juce::String ("filter_cutoff")), (float) (20 + part * 10));
+            set (processor, partParameterId (part, juce::String ("arp_mode")), (float) (part % 3));
+            set (processor, partParameterId (part, juce::String ("seq1_step1")), (float) (part * 7));
+        }
+        check (presets.save (0, "Multi Lead", { "Lead" }, "me", {}, true).wasOk(), "save a preset for part 1");
+        set (processor, "filter_resonance", 33.0f);  // Part 1 now differs from "Multi Lead".
+        set (processor, partParameterId (1, juce::String ("filter_resonance")), 44.0f);
+        check (presets.save (1, "Multi Pad", { "Pad" }, {}, {}, true).wasOk(), "save a preset for part 2");
+        set (processor, voicePartId (0), 2.0f);
+        set (processor, voicePartId (5), 6.0f);
+        set (processor, voiceOutputId (3), 1.0f);
+        set (processor, partKeyHighId (0), 59.0f);
+        set (processor, partKeyLowId (1), 60.0f);
+        set (processor, kVoiceModeId, 1.0f);
+        set (processor, kUnisonId, 3.0f);
+
+        // Everything a multi covers, by host parameter ID.
+        juce::StringArray ids { kVoiceModeId, kUnisonId };
+        for (int voice = 0; voice < kNumVoices; ++voice)
+            ids.addArray ({ voicePartId (voice), voiceOutputId (voice) });
+        for (int part = 0; part < kNumParts; ++part)
+        {
+            ids.addArray ({ partKeyLowId (part), partKeyHighId (part) });
+            for (int i = 0; i < ambika::plugin::NumParameters(); ++i)
+                ids.add (partParameterId (part, ambika::plugin::GetParameter (i)));
+        }
+        std::vector<float> before;
+        for (const auto& id : ids)
+            before.push_back (get (processor, id));
+
+        check (presets.saveMulti ("My Setup", { "Pad" }, "me", "two parts split", false).wasOk()
+                   && presets.multiName() == "My Setup",
+               "save a multi");
+        const auto multiFile = dir.getChildFile ("Multis").getChildFile ("My Setup.eurekamulti");
+        check (multiFile.existsAsFile(), "the multi is stored in presets/Multis");
+        check (presets.saveMulti ("My Setup", {}, {}, {}, false).failed(), "a multi is not replaced without asking");
+        check (presets.presetFile (0) == juce::File() && presets.presetName (0) == "Multi Lead" && ! presets.isModified (0),
+               "a tweaked part becomes the multi's own sound, keeping its name");
+        check (presets.presetFile (1).getFileName() == "Multi Pad.eurekapreset",
+               "an unchanged part still points at its preset");
+
+        bool listed = false, skipped = true;
+        for (const auto& info : presets.scan())
+            if (info.file == multiFile)
+                listed = info.multi && info.tags.contains ("Multi") && info.tags.contains ("Pad")
+                         && info.partNames.size() == kNumParts && info.partNames[1] == "Multi Pad";
+        for (int step = 0; step < 200 && skipped; ++step)
+        {
+            const auto next = presets.neighbour (2, 1);
+            skipped = PresetManager::isEurekaPreset (next) || PresetManager::isFactory (next);
+            presets.load (2, next);
+        }
+        check (listed, "the browser lists the multi with a Multi tag and its part names");
+        check (skipped, "previous/next steps through sounds only, never onto a multi");
+
+        presets.initialiseAll();
+        set (processor, voiceOutputId (3), 0.0f);
+        check (get (processor, voicePartId (0)) == 1.0f, "(everything initialised)");
+
+        check (presets.load (4, multiFile).wasOk(), "load the multi");
+        bool same = true;
+        for (int i = 0; i < ids.size(); ++i)
+            if (std::abs (get (processor, ids[i]) - before[(size_t) i]) > 1e-3f)
+            {
+                same = false;
+                std::printf ("      %s: %g, expected %g\n", ids[i].toRawUTF8(), get (processor, ids[i]), before[(size_t) i]);
+            }
+        check (same, "every part (sound, arp, sequences) and the voice setup come back as saved");
+        check (presets.presetName (0) == "Multi Lead" && presets.presetName (1) == "Multi Pad"
+                   && presets.presetFile (1).getFileName() == "Multi Pad.eurekapreset"
+                   && presets.presetTags (1).contains ("Pad") && ! presets.isModified (0) && ! presets.isModified (1),
+               "each part gets back its preset name and link");
+        check (presets.multiName() == "My Setup" && presets.multiFile() == multiFile && presets.multiAuthor() == "me",
+               "the loaded multi is remembered");
+
+        // The project remembers the multi, so Save multi offers its name.
+        juce::MemoryBlock project;
+        processor.getStateInformation (project);
+        presets.initialiseAll();
+        processor.setStateInformation (project.getData(), (int) project.getSize());
+        check (presets.multiName() == "My Setup" && presets.multiFile() == multiFile && presets.presetName (1) == "Multi Pad",
+               "a project restores the multi's name");
+
+        check (presets.rename (multiFile, "Our Setup").wasOk() && presets.multiName() == "Our Setup"
+                   && dir.getChildFile ("Multis").getChildFile ("Our Setup.eurekamulti").existsAsFile(),
+               "rename a multi");
+        check (presets.load (0, dir.getChildFile ("Multis").getChildFile ("Our Setup.eurekamulti")).wasOk()
+                   && get (processor, kUnisonId) == 3.0f,
+               "a renamed multi still loads");
+    }
 
     dir.deleteRecursively();
     std::printf ("%s (%d failure%s)\n", failures ? "FAILED" : "OK", failures, failures == 1 ? "" : "s");

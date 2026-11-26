@@ -227,7 +227,7 @@ namespace ambika_plugin
     }
 
     FilterVariantControl::FilterVariantControl (APVTS& s)
-        : Display (s, { "filter_model", "filter_variant" }), state (s)
+        : Display (s, { "filter_model", "filter_variant", "filter_mode" }), state (s)
     {
         label.setText ("Variant", juce::dontSendNotification);
         label.setJustificationType (juce::Justification::centred);
@@ -238,9 +238,9 @@ namespace ambika_plugin
         combo.onChange = [this]
         {
             const int index = combo.getSelectedId() - 1;
-            if (index < 0 || index == reader.value (1))
+            if (index < 0 || index == targetValue())
                 return;
-            if (auto* parameter = state.getParameter (partParameterId (part, juce::String ("filter_variant"))))
+            if (auto* parameter = state.getParameter (partParameterId (part, targetId())))
             {
                 parameter->beginChangeGesture();
                 parameter->setValueNotifyingHost (parameter->convertTo0to1 ((float) index));
@@ -250,22 +250,42 @@ namespace ambika_plugin
         refresh();
     }
 
+    juce::String FilterVariantControl::targetId() const
+    {
+        return shownModel == ambika::plugin::kFilterModelAmbika ? "filter_mode" : "filter_variant";
+    }
+
+    int FilterVariantControl::targetValue() const
+    {
+        return reader.value (shownModel == ambika::plugin::kFilterModelAmbika ? 2 : 1);
+    }
+
     void FilterVariantControl::refresh()
     {
         reader.poll();
         const int model = reader.value (0);
-        const int variants = ambika::plugin::NumFilterVariants (model);
         if (model != shownModel)
         {
             shownModel = model;
             combo.clear (juce::dontSendNotification);
-            for (int i = 0; i < variants; ++i)
-                combo.addItem (ambika::plugin::FilterVariantName (model, i), i + 1);
-            if (variants == 0)
+            juce::StringArray names;
+            if (model == ambika::plugin::kFilterModelAmbika)
+            {
+                if (auto* mode = dynamic_cast<juce::AudioParameterChoice*> (
+                        state.getParameter (partParameterId (part, juce::String ("filter_mode")))))
+                    for (const auto& choice : mode->choices)
+                        names.add (choice.toUpperCase());
+            }
+            else
+                for (int i = 0; i < ambika::plugin::NumFilterVariants (model); ++i)
+                    names.add (ambika::plugin::FilterVariantName (model, i));
+            for (int i = 0; i < names.size(); ++i)
+                combo.addItem (names[i], i + 1);
+            if (names.isEmpty())
                 combo.addItem ("-", 1);
-            combo.setEnabled (variants > 1);
+            combo.setEnabled (names.size() > 1);
         }
-        const int selected = juce::jlimit (0, juce::jmax (0, variants - 1), reader.value (1));
+        const int selected = juce::jlimit (0, juce::jmax (0, combo.getNumItems() - 1), targetValue());
         combo.setSelectedId (selected + 1, juce::dontSendNotification);
     }
 

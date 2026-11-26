@@ -119,7 +119,9 @@ detuned by each part's Spread. The sustain pedal holds notes in all modes.
 
 Each part chooses its filter on the Synth page:
 
-- **Ambika SVF**: a model of the 2-pole SVF voicecard (LP / BP / HP).
+- **Ambika SVF**: a model of the 2-pole SVF voicecard (LP / BP / HP). The
+  Variant menu shows these for the SVF but writes `filter_mode` (the Ambika's
+  own patch byte), not `filter_variant`; there is no separate Mode menu.
 - **Surge filters** (from Surge XT's sst-filters), in menu order: MULTI
   Xpander, LP Diode Ladder, LP Legacy Ladder, LP Vintage Ladder, FX Comb+,
   FX Comb-, FX Sample and Hold, FX Cutoff Warp AP. **Variant** selects the
@@ -244,10 +246,12 @@ The sun/moon button at the right of the header switches between dark and
 light mode. The choice is a user preference (not saved in projects), stored
 in `~/Library/Application Support/eureka/eureka.settings`.
 
-The colour button next to it changes the highlight colour (curves, knob
-arcs, part buttons) with a hex code such as `#E0457B` or `f80`: for the
-edited part, or for all parts with **All parts**. **Reset** goes back to the
-theme's colours. Highlights are saved in the same settings file and win over
+The colour button next to it opens a pop-up that changes the highlight
+colour (curves, knob arcs, part buttons): a hue/saturation wheel with a
+brightness slider for the edited part (or all parts with **All parts**), and
+four random palettes (one colour per part, from a random scheme: spread,
+neighbours, three groups or two opposites) that colour all six parts; with
+**Shuffle** for new ones. **Reset** goes back to the theme's colours. Highlights are saved in the same settings file and win over
 a skin's `partColours`.
 
 ## Skins
@@ -282,6 +286,7 @@ been changed since it was loaded or saved.
 - **Save** writes over the current preset (or asks for a name if there is none).
 - **Save as...** names and tags a new preset (suggested tags plus your own),
   with optional author and comment. Saving over an existing name asks first.
+- **Save multi...** saves a multi (below) with the same form.
 - **Init** opens a menu: reset the edited part's sound, or **everything**:
   all six parts plus the voice routing (voice cards back to part 1, voice
   mode Poly, unison 1, full keyboard ranges).
@@ -293,6 +298,18 @@ Presets are JSON files (`.eurekapreset`) in `Documents/eureka/presets`
 are included. They store
 values by parameter ID, so a preset missing newer parameters loads them at
 their defaults. Each part's preset name is saved with the host project.
+
+A multi (`.eurekamulti`, format `eureka-multi`, in `presets/Multis`) holds
+all six parts plus the multi parameters (`multi_voice*_part`,
+`multi_voice*_output`, `multi_part*_key_low/high`, `multi_voice_mode`,
+`multi_unison`). Each part entry has its engine values by parameter ID plus
+its preset name, tags, author, comment and file. The file is left empty for
+a part that differed from its preset when the multi was saved; saving also
+unlinks that part in the session, so **Save** cannot overwrite the original
+preset with the multi's version. `PresetManager::load` loads a multi
+whatever the part; `scan` lists multis (`PresetInfo::multi`, `partNames`,
+tag "Multi" added on read); `neighbour` skips them. The loaded multi's name
+is saved with the project.
 
 ## Ambika presets
 

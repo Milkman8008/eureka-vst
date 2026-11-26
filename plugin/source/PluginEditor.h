@@ -74,7 +74,6 @@ namespace ambika_plugin
         ParameterControl* filterModel = nullptr;
         FilterVariantControl* filterVariant = nullptr;
         std::vector<ParameterControl*> filterControls;
-        std::unique_ptr<ParameterReader> filterModelReader;
         Panel* voice = nullptr;
         std::vector<ParameterControl*> voiceControls;
         EnvelopePanel envelopes[3] {};
@@ -157,10 +156,13 @@ namespace ambika_plugin
         void showPage (int index);  // 0 synth, 1 mod, 2 multi, 3 presets, 4 seq
         void editPart (int part);
         void showSaveDialog();
+        void showSaveMultiDialog();
         void toggleTheme();
         // Re-colours the UI after the highlight colours change.
         void highlightsChanged();
         void showHighlightEditor (juce::Component& button);
+        // The colour pop-up's content, for the edited part.
+        std::unique_ptr<juce::Component> createHighlightEditor();
 
     private:
         class Content;

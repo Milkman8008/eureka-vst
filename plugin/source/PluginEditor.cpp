@@ -105,10 +105,8 @@ namespace ambika_plugin
         // Ripples (the default) first, then the Ambika SVF, then Surge.
         filterModel->setChoiceOrder (ambika::plugin::FilterModelMenuOrder());
         filterVariant = &display<FilterVariantControl> (*filter, state);
-        filterModelReader = std::make_unique<ParameterReader> (state, std::vector<juce::String> { "filter_model" });
         filterControls = { &control (*filter, "filter_cutoff", "Frequency", CS::Knob),
                            &control (*filter, "filter_resonance", "Resonance", CS::Knob),
-                           &control (*filter, "filter_mode", "Mode", CS::Combo),
                            &control (*filter, "filter_env", "Env 2 amount", CS::Knob),
                            &control (*filter, "filter_lfo", "LFO 2 amount", CS::Knob) };
 
@@ -185,7 +183,7 @@ namespace ambika_plugin
             filterModel->setBounds (models.removeFromLeft (models.getWidth() * 3 / 5).reduced (3, 0));
             filterVariant->setBounds (models.reduced (3, 0));
             c.removeFromTop (4);
-            layoutGrid (filterControls, c, 3, 84);
+            layoutGrid (filterControls, c, 2, 84);
         }
         top.removeFromLeft (gap);
         voice->setBounds (top);
@@ -237,7 +235,6 @@ namespace ambika_plugin
     {
         Page::bindPart (part);
         filterVariant->bindVariantPart (part);
-        filterModelReader->bindPart (part);
         poll();
     }
 
@@ -245,10 +242,6 @@ namespace ambika_plugin
     {
         Page::poll();
         filterVariant->refresh();
-        filterModelReader->poll();
-        // The LP/BP/HP mode belongs to the Ambika SVF; Surge models carry
-        // their response type in the model itself.
-        filterControls[2]->setEnabled (filterModelReader->value (0) == 0);
     }
 
     void SynthPage::paint (juce::Graphics& g)
@@ -681,22 +674,142 @@ namespace ambika_plugin
             settings->saveIfNeeded();
         }
 
-        // "#ff8800", "ff8800" or "#f80"; nothing for anything else.
-        std::optional<juce::Colour> parseHex (juce::String text)
-        {
-            text = text.trim().trimCharactersAtStart ("#");
-            if (! text.containsOnly ("0123456789abcdefABCDEF"))
-                return {};
-            if (text.length() == 3)
-                text = juce::String::charToString (text[0]) + text[0] + text[1] + text[1] + text[2] + text[2];
-            if (text.length() != 6)
-                return {};
-            return juce::Colour ((juce::uint32) (0xff000000u | (juce::uint32) text.getHexValue32()));
-        }
-
         juce::String toHex (juce::Colour colour)
         {
             return "#" + colour.toDisplayString (false).toUpperCase();
+        }
+
+        // Hue around the circle, saturation from the centre out, at a
+        // brightness set separately. Click or drag to pick.
+        class ColourWheel final : public juce::Component
+        {
+        public:
+            std::function<void (juce::Colour)> onPick;   // While dragging.
+            std::function<void()> onPickFinished;        // Mouse up.
+
+            void setColour (juce::Colour c)
+            {
+                hue = c.getHue();
+                saturation = c.getSaturation();
+                if (! juce::approximatelyEqual (brightness, c.getBrightness()))
+                {
+                    brightness = c.getBrightness();
+                    wheel = {};
+                }
+                repaint();
+            }
+            void setBrightness (float b)
+            {
+                brightness = b;
+                wheel = {};
+                repaint();
+            }
+            juce::Colour colour() const { return juce::Colour (hue, saturation, brightness, 1.0f); }
+
+            void paint (juce::Graphics& g) override
+            {
+                const auto disc = discBounds();
+                if (! wheel.isValid() || wheel.getWidth() != disc.getWidth() * 2)
+                    renderWheel (disc.getWidth() * 2);
+                g.drawImage (wheel, disc.toFloat());
+                g.setColour (Palette::outline);
+                g.drawEllipse (disc.toFloat().reduced (0.5f), 1.0f);
+
+                const auto marker = markerPosition();
+                g.setColour (juce::Colours::black.withAlpha (0.6f));
+                g.drawEllipse (juce::Rectangle<float> (14.0f, 14.0f).withCentre (marker), 2.5f);
+                g.setColour (juce::Colours::white);
+                g.drawEllipse (juce::Rectangle<float> (14.0f, 14.0f).withCentre (marker), 1.5f);
+            }
+
+            void mouseDown (const juce::MouseEvent& e) override { pick (e.position); }
+            void mouseDrag (const juce::MouseEvent& e) override { pick (e.position); }
+            void mouseUp (const juce::MouseEvent&) override
+            {
+                if (onPickFinished)
+                    onPickFinished();
+            }
+
+        private:
+            juce::Rectangle<int> discBounds() const
+            {
+                const int size = juce::jmin (getWidth(), getHeight()) - 4;
+                return getLocalBounds().withSizeKeepingCentre (size, size);
+            }
+
+            juce::Point<float> markerPosition() const
+            {
+                const auto disc = discBounds().toFloat();
+                const float angle = hue * juce::MathConstants<float>::twoPi;
+                const float radius = saturation * disc.getWidth() * 0.5f;
+                return disc.getCentre() + juce::Point<float> (std::cos (angle), -std::sin (angle)) * radius;
+            }
+
+            void pick (juce::Point<float> position)
+            {
+                const auto disc = discBounds().toFloat();
+                const auto offset = position - disc.getCentre();
+                float angle = std::atan2 (-offset.y, offset.x);
+                if (angle < 0.0f)
+                    angle += juce::MathConstants<float>::twoPi;
+                hue = angle / juce::MathConstants<float>::twoPi;
+                saturation = juce::jlimit (0.0f, 1.0f, offset.getDistanceFromOrigin() / (disc.getWidth() * 0.5f));
+                repaint();
+                if (onPick)
+                    onPick (colour());
+            }
+
+            void renderWheel (int size)
+            {
+                wheel = juce::Image (juce::Image::ARGB, size, size, true);
+                juce::Image::BitmapData pixels (wheel, juce::Image::BitmapData::writeOnly);
+                const float centre = (float) size * 0.5f;
+                for (int y = 0; y < size; ++y)
+                    for (int x = 0; x < size; ++x)
+                    {
+                        const float dx = (float) x + 0.5f - centre, dy = centre - ((float) y + 0.5f);
+                        const float distance = std::sqrt (dx * dx + dy * dy) / centre;
+                        if (distance > 1.0f)
+                            continue;
+                        float angle = std::atan2 (dy, dx);
+                        if (angle < 0.0f)
+                            angle += juce::MathConstants<float>::twoPi;
+                        // Soft edge, one pixel wide.
+                        const float alpha = juce::jlimit (0.0f, 1.0f, (1.0f - distance) * centre);
+                        pixels.setPixelColour (x, y, juce::Colour (angle / juce::MathConstants<float>::twoPi,
+                                                                   distance, brightness, alpha));
+                    }
+            }
+
+            float hue = 0.0f, saturation = 0.0f, brightness = 1.0f;
+            juce::Image wheel;
+        };
+
+        // Six colours that go together: one per part. Hues follow a random
+        // scheme around a random start; saturation and brightness stay in a
+        // range that reads on both the dark and the light theme.
+        std::array<juce::Colour, kNumParts> randomPalette (juce::Random& random)
+        {
+            std::array<juce::Colour, kNumParts> palette;
+            const float base = random.nextFloat();
+            const int scheme = random.nextInt (4);
+            for (int i = 0; i < kNumParts; ++i)
+            {
+                float hue = base;
+                switch (scheme)
+                {
+                    case 0: hue += (float) i / (float) kNumParts; break;                  // Spread round the wheel.
+                    case 1: hue += (float) i * 0.07f; break;                              // Neighbours.
+                    case 2: hue += (float) (i % 3) / 3.0f + (float) (i / 3) * 0.06f; break;  // Three groups.
+                    default: hue += (float) (i % 2) * 0.5f + (float) (i / 2) * 0.05f; break; // Two opposites.
+                }
+                hue += (random.nextFloat() - 0.5f) * 0.03f;
+                hue -= std::floor (hue);
+                const float saturation = 0.5f + random.nextFloat() * 0.35f;
+                const float brightness = 0.82f + random.nextFloat() * 0.15f;
+                palette[(size_t) i] = juce::Colour (hue, saturation, brightness, 1.0f);
+            }
+            return palette;
         }
 
         // Header button: a swatch of the edited part's highlight colour.
@@ -705,7 +818,7 @@ namespace ambika_plugin
         public:
             HighlightButton() : juce::Button ("highlight")
             {
-                setTooltip ("Change the highlight colour (hex code)");
+                setTooltip ("Change the highlight colours: colour wheel or random palettes");
             }
 
             void paintButton (juce::Graphics& g, bool over, bool) override
@@ -725,7 +838,8 @@ namespace ambika_plugin
             }
         };
 
-        // The pop-up: a hex field for the edited part (or all parts).
+        // The pop-up: a colour wheel for the edited part (or all parts), and
+        // random palettes that colour all six parts at once.
         class HighlightEditor final : public juce::Component
         {
         public:
@@ -736,90 +850,178 @@ namespace ambika_plugin
                 title.setFont (juce::Font (eurekaFont (13.0f, juce::Font::bold)));
                 addAndMakeVisible (title);
 
-                hex.setText (toHex (Palette::part (part)), false);
-                hex.setFont (juce::Font (eurekaFont (14.0f)));
-                hex.setInputRestrictions (7, "#0123456789abcdefABCDEF");
-                hex.setJustification (juce::Justification::centredLeft);
-                hex.onTextChange = [this] { repaint(); };
-                hex.onReturnKey = [this] { apply(); };
-                addAndMakeVisible (hex);
+                const auto start = Palette::part (part);
+                wheel.setColour (start);
+                wheel.onPick = [this] (juce::Colour c) { apply (c, false); };
+                wheel.onPickFinished = [] { saveHighlightPreferences(); };
+                addAndMakeVisible (wheel);
+
+                brightness.setSliderStyle (juce::Slider::LinearHorizontal);
+                brightness.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+                brightness.setRange (0.25, 1.0);
+                brightness.setValue (start.getBrightness(), juce::dontSendNotification);
+                brightness.setTooltip ("Brightness");
+                brightness.onValueChange = [this]
+                {
+                    wheel.setBrightness ((float) brightness.getValue());
+                    apply (wheel.colour(), false);
+                };
+                brightness.onDragEnd = [] { saveHighlightPreferences(); };
+                addAndMakeVisible (brightness);
 
                 allParts.setButtonText ("All parts");
                 allParts.setClickingTogglesState (true);
+                allParts.setTooltip ("The wheel colours every part");
                 addAndMakeVisible (allParts);
-                applyButton.onClick = [this] { apply(); };
-                addAndMakeVisible (applyButton);
+
+                palettesLabel.setText ("Random palettes", juce::dontSendNotification);
+                palettesLabel.setFont (juce::Font (eurekaFont (12.0f, juce::Font::bold)));
+                palettesLabel.setColour (juce::Label::textColourId, Palette::dimText);
+                addAndMakeVisible (palettesLabel);
+                shuffleButton.setTooltip ("New palettes");
+                shuffleButton.onClick = [this] { shuffle(); };
+                addAndMakeVisible (shuffleButton);
                 resetButton.setTooltip ("Back to the theme's colours (every part)");
                 resetButton.onClick = [this]
                 {
                     for (int i = 0; i < kNumParts; ++i)
                         Palette::setPartOverride (i, {});
                     saveHighlightPreferences();
-                    hex.setText (toHex (Palette::part (part)), false);
+                    showColour (Palette::part (part));
                     onChanged();
                     repaint();
                 };
                 addAndMakeVisible (resetButton);
-                setSize (260, 118);
+                shuffle();
+                setSize (300, 474);
             }
 
             void paint (juce::Graphics& g) override
             {
-                const auto colour = parseHex (hex.getText());
-                g.setColour (colour.value_or (Palette::panelRaised));
+                g.setColour (Palette::part (part));
                 g.fillRoundedRectangle (swatch.toFloat(), 5.0f);
                 g.setColour (Palette::outline);
                 g.drawRoundedRectangle (swatch.toFloat(), 5.0f, 1.0f);
-                if (! colour)
+                g.setColour (Palette::dimText);
+                g.setFont (juce::Font (eurekaFont (12.0f)));
+                g.drawText (toHex (Palette::part (part)), hexArea, juce::Justification::centredLeft);
+
+                for (size_t row = 0; row < palettes.size(); ++row)
                 {
-                    g.setColour (Palette::faintText);
-                    g.setFont (juce::Font (eurekaFont (10.0f)));
-                    g.drawText ("?", swatch, juce::Justification::centred);
+                    const auto area = paletteRows[row].toFloat();
+                    if (row == (size_t) hoveredRow)
+                    {
+                        g.setColour (Palette::text.withAlpha (0.08f));
+                        g.fillRoundedRectangle (area.expanded (3.0f), 6.0f);
+                    }
+                    const float w = area.getWidth() / (float) kNumParts;
+                    for (int i = 0; i < kNumParts; ++i)
+                    {
+                        g.setColour (palettes[row][(size_t) i]);
+                        g.fillRoundedRectangle (area.withX (area.getX() + w * (float) i).withWidth (w).reduced (2.0f, 0.0f), 4.0f);
+                    }
                 }
             }
 
             void resized() override
             {
-                auto area = getLocalBounds().reduced (10);
+                auto area = getLocalBounds().reduced (12);
                 title.setBounds (area.removeFromTop (20));
                 area.removeFromTop (6);
-                auto row = area.removeFromTop (28);
-                swatch = row.removeFromLeft (28);
+                wheel.setBounds (area.removeFromTop (176));
+                area.removeFromTop (6);
+                brightness.setBounds (area.removeFromTop (22));
+                area.removeFromTop (6);
+                auto row = area.removeFromTop (26);
+                swatch = row.removeFromLeft (26);
                 row.removeFromLeft (8);
-                hex.setBounds (row.removeFromLeft (110));
-                row.removeFromLeft (8);
-                allParts.setBounds (row);
-                area.removeFromTop (8);
-                auto buttons = area.removeFromTop (28);
-                resetButton.setBounds (buttons.removeFromLeft (80));
-                applyButton.setBounds (buttons.removeFromRight (80));
+                allParts.setBounds (row.removeFromRight (84));
+                hexArea = row;
+                area.removeFromTop (12);
+                auto header = area.removeFromTop (24);
+                shuffleButton.setBounds (header.removeFromRight (72));
+                palettesLabel.setBounds (header);
+                area.removeFromTop (4);
+                for (auto& r : paletteRows)
+                {
+                    r = area.removeFromTop (22);
+                    area.removeFromTop (6);
+                }
+                resetButton.setBounds (area.removeFromBottom (26).removeFromLeft (80));
+            }
+
+            void mouseMove (const juce::MouseEvent& e) override
+            {
+                const int row = rowAt (e.getPosition());
+                if (row != hoveredRow)
+                {
+                    hoveredRow = row;
+                    setMouseCursor (row >= 0 ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+                    repaint();
+                }
+            }
+            void mouseExit (const juce::MouseEvent&) override
+            {
+                hoveredRow = -1;
+                repaint();
+            }
+            void mouseUp (const juce::MouseEvent& e) override
+            {
+                const int row = rowAt (e.getPosition());
+                if (row < 0)
+                    return;
+                for (int i = 0; i < kNumParts; ++i)
+                    Palette::setPartOverride (i, palettes[(size_t) row][(size_t) i]);
+                saveHighlightPreferences();
+                showColour (Palette::part (part));
+                onChanged();
+                repaint();
             }
 
         private:
-            void apply()
+            void apply (juce::Colour colour, bool save)
             {
-                const auto colour = parseHex (hex.getText());
-                if (! colour)
-                {
-                    hex.setColour (juce::TextEditor::outlineColourId, juce::Colour (0xfff0647a));
-                    hex.repaint();
-                    return;
-                }
-                hex.setColour (juce::TextEditor::outlineColourId, Palette::outline);
-                hex.setText (toHex (*colour), false);
                 for (int i = 0; i < kNumParts; ++i)
                     if (allParts.getToggleState() || i == part)
-                        Palette::setPartOverride (i, *colour);
-                saveHighlightPreferences();
+                        Palette::setPartOverride (i, colour);
+                if (save)
+                    saveHighlightPreferences();
                 onChanged();
+                repaint();
+            }
+
+            void showColour (juce::Colour colour)
+            {
+                wheel.setColour (colour);
+                brightness.setValue (colour.getBrightness(), juce::dontSendNotification);
+            }
+
+            void shuffle()
+            {
+                for (auto& palette : palettes)
+                    palette = randomPalette (random);
+                repaint();
+            }
+
+            int rowAt (juce::Point<int> position) const
+            {
+                for (size_t row = 0; row < paletteRows.size(); ++row)
+                    if (paletteRows[row].expanded (0, 3).contains (position))
+                        return (int) row;
+                return -1;
             }
 
             int part;
             std::function<void()> onChanged;
-            juce::Label title;
-            juce::TextEditor hex;
-            juce::TextButton allParts, applyButton { "Apply" }, resetButton { "Reset" };
-            juce::Rectangle<int> swatch;
+            juce::Label title, palettesLabel;
+            ColourWheel wheel;
+            juce::Slider brightness;
+            juce::TextButton allParts, shuffleButton { "Shuffle" }, resetButton { "Reset" };
+            juce::Rectangle<int> swatch, hexArea;
+            juce::Random random;
+            std::array<std::array<juce::Colour, kNumParts>, 4> palettes;
+            std::array<juce::Rectangle<int>, 4> paletteRows;
+            int hoveredRow = -1;
         };
 
         // Header button: a moon in dark mode, a sun in light mode.
@@ -922,6 +1124,7 @@ namespace ambika_plugin
         }
 
         void showSaveDialog() { dialog.openForSave(); }
+        void showSaveMultiDialog() { dialog.openForSaveMulti(); }
         int page() const { return currentPage; }
 
         void showToast (const juce::String& text, bool isError)
@@ -1296,10 +1499,15 @@ namespace ambika_plugin
     {
         if (highlightBox != nullptr)
             return;
-        auto editor = std::make_unique<HighlightEditor> (audioProcessor.editedPart(), [this] { highlightsChanged(); });
+        auto editor = createHighlightEditor();
         // A child of this window (so it inherits the look and closes with it).
         highlightBox = &juce::CallOutBox::launchAsynchronously (
             std::move (editor), getLocalArea (&button, button.getLocalBounds()), this);
+    }
+
+    std::unique_ptr<juce::Component> AmbikaAudioProcessorEditor::createHighlightEditor()
+    {
+        return std::make_unique<HighlightEditor> (audioProcessor.editedPart(), [this] { highlightsChanged(); });
     }
 
     void AmbikaAudioProcessorEditor::highlightsChanged()
@@ -1312,6 +1520,11 @@ namespace ambika_plugin
     void AmbikaAudioProcessorEditor::showSaveDialog()
     {
         content->showSaveDialog();
+    }
+
+    void AmbikaAudioProcessorEditor::showSaveMultiDialog()
+    {
+        content->showSaveMultiDialog();
     }
 
     void AmbikaAudioProcessorEditor::timerCallback()

@@ -9,9 +9,11 @@ namespace ambika_plugin
     namespace
     {
         constexpr const char* kFormat = "eureka-preset";
+        constexpr const char* kMultiFormat = "eureka-multi";
         constexpr int kFormatVersion = 1;
         const juce::Identifier kStateNode { "Presets" };
         const juce::Identifier kPartNode { "Part" };
+        const juce::Identifier kMultiNode { "Multi" };
 
         // Documents/eureka/presets on every platform: easy to find, and
         // writable from sandboxed hosts that cannot write to ~/Library.
@@ -26,7 +28,8 @@ namespace ambika_plugin
             juce::var json;
             if (juce::JSON::parse (file.loadFileAsString(), json).failed())
                 return {};
-            if (json.getProperty ("format", {}).toString() != kFormat)
+            const auto format = json.getProperty ("format", {}).toString();
+            if (format != kFormat && format != kMultiFormat)
                 return {};
             return json;
         }
@@ -103,7 +106,51 @@ namespace ambika_plugin
         info.author = json.getProperty ("author", {}).toString();
         info.comment = json.getProperty ("comment", {}).toString();
         info.modified = file.getLastModificationTime();
+        info.multi = json.getProperty ("format", {}).toString() == kMultiFormat;
+        info.partNames.clear();
+        if (info.multi)
+        {
+            info.tags.addIfNotAlreadyThere ("Multi");
+            if (auto* parts = json.getProperty ("parts", {}).getArray())
+                for (const auto& part : *parts)
+                    info.partNames.add (part.getProperty ("name", "Init").toString());
+        }
         return true;
+    }
+
+    juce::File PresetManager::multiFileForName (const juce::String& name) const
+    {
+        return multiDirectory().getChildFile (sanitiseFileName (name) + multiExtension);
+    }
+
+    std::vector<int> PresetManager::valuesFromJson (const juce::var& parameters)
+    {
+        auto values = defaultValues();
+        for (int i = 0; i < ambika::plugin::NumParameters(); ++i)
+        {
+            const auto& info = ambika::plugin::GetParameter (i);
+            if (parameters.hasProperty (info.id))
+                values[(size_t) i] = (int) parameters.getProperty (info.id, info.default_value);
+            else if (juce::String (info.id) == "filter_model")
+                values[(size_t) i] = ambika::plugin::kFilterModelAmbika;  // Saved before filter models existed.
+        }
+        return values;
+    }
+
+    juce::StringArray PresetManager::multiParameterIds()
+    {
+        juce::StringArray ids { kVoiceModeId, kUnisonId };
+        for (int voice = 0; voice < kNumVoices; ++voice)
+        {
+            ids.add (voicePartId (voice));
+            ids.add (voiceOutputId (voice));
+        }
+        for (int part = 0; part < kNumParts; ++part)
+        {
+            ids.add (partKeyLowId (part));
+            ids.add (partKeyHighId (part));
+        }
+        return ids;
     }
 
     std::vector<PresetInfo> PresetManager::scan() const
@@ -113,7 +160,8 @@ namespace ambika_plugin
         std::vector<PresetInfo> presets (factoryPresets());
         if (! directory.isDirectory())
             return presets;
-        for (const auto& entry : juce::RangedDirectoryIterator (directory, true, juce::String ("*") + fileExtension,
+        for (const auto& entry : juce::RangedDirectoryIterator (directory, true,
+                                                                juce::String ("*") + fileExtension + ";*" + multiExtension,
                                                                 juce::File::findFiles))
         {
             PresetInfo info;
@@ -157,6 +205,8 @@ namespace ambika_plugin
 
     juce::Result PresetManager::load (int part, const juce::File& file)
     {
+        if (isEurekaMulti (file))
+            return loadMulti (file);
         if (isFactory (file) || ! isEurekaPreset (file))
         {
             ambika_format::Bundle bundle;
@@ -182,17 +232,7 @@ namespace ambika_plugin
         if (json.isVoid())
             return juce::Result::fail ("\"" + file.getFileName() + "\" is not an eureka! preset.");
 
-        auto values = defaultValues();
-        const auto parameters = json.getProperty ("parameters", {});
-        for (int i = 0; i < ambika::plugin::NumParameters(); ++i)
-        {
-            const auto& info = ambika::plugin::GetParameter (i);
-            if (parameters.hasProperty (info.id))
-                values[(size_t) i] = (int) parameters.getProperty (info.id, info.default_value);
-            else if (juce::String (info.id) == "filter_model")
-                values[(size_t) i] = ambika::plugin::kFilterModelAmbika;  // Saved before filter models existed.
-        }
-        applyValues (part, values);
+        applyValues (part, valuesFromJson (json.getProperty ("parameters", {})));
 
         auto& c = current[(size_t) part];
         PresetInfo info;
@@ -245,6 +285,7 @@ namespace ambika_plugin
         for (int part = 0; part < kNumParts; ++part)
             initialise (part);
 
+        currentMulti = CurrentMulti();
         juce::StringArray routing { kVoiceModeId, kUnisonId };
         for (int voice = 0; voice < kNumVoices; ++voice)
             routing.add (voicePartId (voice));
@@ -313,6 +354,15 @@ namespace ambika_plugin
             return juce::File (kFactoryFolder + fileName);
            #endif
         }
+
+        // A preset path as saved in a project or multi.
+        juce::File storedFile (const juce::String& path)
+        {
+            if (portablePath (path).startsWith (kFactoryFolder))
+                return factoryFile (path.fromLastOccurrenceOf ("/", false, false)
+                                        .fromLastOccurrenceOf ("\\", false, false));
+            return juce::File::isAbsolutePath (path) ? juce::File (path) : juce::File();
+        }
     }
 
     bool PresetManager::isFactory (const juce::File& file)
@@ -323,6 +373,122 @@ namespace ambika_plugin
     bool PresetManager::isEurekaPreset (const juce::File& file)
     {
         return file.hasFileExtension (fileExtension);
+    }
+
+    bool PresetManager::isEurekaMulti (const juce::File& file)
+    {
+        return file.hasFileExtension (multiExtension);
+    }
+
+    juce::Result PresetManager::saveMulti (const juce::String& name, const juce::StringArray& tags,
+                                           const juce::String& author, const juce::String& comment, bool overwrite)
+    {
+        if (name.trim().isEmpty())
+            return juce::Result::fail ("Please give the multi a name.");
+        const auto file = multiFileForName (name);
+        if (file.existsAsFile() && ! overwrite)
+            return juce::Result::fail ("A multi called \"" + name.trim() + "\" already exists.");
+        if (const auto created = multiDirectory().createDirectory(); created.failed())
+            return juce::Result::fail ("Could not create the multi folder " + multiDirectory().getFullPathName()
+                                       + ": " + created.getErrorMessage());
+
+        juce::Array<juce::var> parts;
+        for (int part = 0; part < kNumParts; ++part)
+        {
+            const auto& c = current[(size_t) part];
+            const auto values = captureValues (part);
+            auto* parameters = new juce::DynamicObject();
+            for (int i = 0; i < ambika::plugin::NumParameters(); ++i)
+                parameters->setProperty (ambika::plugin::GetParameter (i).id, values[(size_t) i]);
+            // A part changed since its preset was loaded is the multi's own
+            // sound: it keeps the name but no longer points at that preset.
+            const bool modified = values != c.snapshot;
+            auto* entry = new juce::DynamicObject();
+            entry->setProperty ("name", c.name);
+            entry->setProperty ("file", modified ? juce::String() : c.file.getFullPathName());
+            entry->setProperty ("tags", toVar (c.tags));
+            entry->setProperty ("author", c.author);
+            entry->setProperty ("comment", c.comment);
+            entry->setProperty ("parameters", juce::var (parameters));
+            parts.add (juce::var (entry));
+        }
+        auto* multi = new juce::DynamicObject();
+        for (const auto& id : multiParameterIds())
+            if (auto* parameter = state.getParameter (id))
+                multi->setProperty (id, juce::roundToInt (parameter->convertFrom0to1 (parameter->getValue())));
+
+        juce::StringArray savedTags (tags);
+        savedTags.removeString ("Multi", true);  // Added when the file is read.
+        auto* root = new juce::DynamicObject();
+        root->setProperty ("format", kMultiFormat);
+        root->setProperty ("version", kFormatVersion);
+        root->setProperty ("name", name.trim());
+        root->setProperty ("tags", toVar (savedTags));
+        root->setProperty ("author", author.trim());
+        root->setProperty ("comment", comment.trim());
+        root->setProperty ("parts", parts);
+        root->setProperty ("multi", juce::var (multi));
+        if (! file.replaceWithText (juce::JSON::toString (juce::var (root), false)))
+            return juce::Result::fail ("Could not write " + file.getFullPathName());
+
+        currentMulti = { name.trim(), file, savedTags, author.trim(), comment.trim() };
+        for (int part = 0; part < kNumParts; ++part)
+        {
+            auto& c = current[(size_t) part];
+            const auto values = captureValues (part);
+            if (values != c.snapshot)
+            {
+                c.file = juce::File();
+                c.snapshot = values;  // Saved, as part of the multi.
+            }
+        }
+        return juce::Result::ok();
+    }
+
+    juce::Result PresetManager::loadMulti (const juce::File& file)
+    {
+        const auto json = parseFile (file);
+        if (json.isVoid() || json.getProperty ("format", {}).toString() != kMultiFormat)
+            return juce::Result::fail ("\"" + file.getFileName() + "\" is not an eureka! multi.");
+        const auto* parts = json.getProperty ("parts", {}).getArray();
+        if (parts == nullptr)
+            return juce::Result::fail ("\"" + file.getFileName() + "\" has no parts.");
+
+        for (int part = 0; part < kNumParts; ++part)
+        {
+            auto& c = current[(size_t) part];
+            if (part >= parts->size())
+            {
+                initialise (part);
+                continue;
+            }
+            const auto& entry = parts->getReference (part);
+            applyValues (part, valuesFromJson (entry.getProperty ("parameters", {})));
+            c.name = entry.getProperty ("name", "Init").toString();
+            c.file = storedFile (entry.getProperty ("file", {}).toString());
+            c.tags = toStringArray (entry.getProperty ("tags", {}));
+            c.author = entry.getProperty ("author", {}).toString();
+            c.comment = entry.getProperty ("comment", {}).toString();
+            c.snapshot = captureValues (part);
+        }
+        const auto multi = json.getProperty ("multi", {});
+        for (const auto& id : multiParameterIds())
+        {
+            if (auto* parameter = state.getParameter (id))
+            {
+                const float value = multi.hasProperty (id) ? parameter->convertTo0to1 ((float) multi.getProperty (id, 0))
+                                                           : parameter->getDefaultValue();
+                parameter->beginChangeGesture();
+                parameter->setValueNotifyingHost (value);
+                parameter->endChangeGesture();
+            }
+        }
+
+        PresetInfo info;
+        readInfo (file, info);
+        info.tags.removeString ("Multi", true);
+        currentMulti = { info.name, file, info.tags, info.author, info.comment };
+        return juce::Result::ok();
     }
 
     const std::vector<PresetInfo>& PresetManager::factoryPresets()
@@ -521,7 +687,8 @@ namespace ambika_plugin
         const auto json = parseFile (file);
         if (json.isVoid())
             return juce::Result::fail ("\"" + file.getFileName() + "\" is not an eureka! preset.");
-        const auto target = file.getParentDirectory().getChildFile (sanitiseFileName (newName) + fileExtension);
+        const auto target = file.getParentDirectory().getChildFile (sanitiseFileName (newName)
+                                                                    + file.getFileExtension());
         if (target != file && target.existsAsFile())
             return juce::Result::fail ("A preset called \"" + newName.trim() + "\" already exists.");
 
@@ -531,6 +698,11 @@ namespace ambika_plugin
             return juce::Result::fail ("Could not write " + target.getFullPathName());
         if (target != file)
             file.deleteFile();
+        if (currentMulti.file == file)
+        {
+            currentMulti.file = target;
+            currentMulti.name = newName.trim();
+        }
 
         for (auto& c : current)
             if (c.file == file)
@@ -552,6 +724,8 @@ namespace ambika_plugin
         for (auto& c : current)
             if (c.file == file)
                 c.file = juce::File();
+        if (currentMulti.file == file)
+            currentMulti.file = juce::File();
         return juce::Result::ok();
     }
 
@@ -567,13 +741,19 @@ namespace ambika_plugin
             return {};
         const auto& file = current[(size_t) part].file;
         int index = -1;
-        for (size_t i = 0; i < presets.size(); ++i)
-            if (presets[i].file == file)
-                index = (int) i;
         const int count = (int) presets.size();
+        for (int i = 0; i < count; ++i)
+            if (presets[(size_t) i].file == file)
+                index = i;
         if (index < 0)
-            return presets[direction > 0 ? 0 : (size_t) (count - 1)].file;
-        return presets[(size_t) ((index + direction + count) % count)].file;
+            index = direction > 0 ? count - 1 : 0;  // Steps onto the first / last.
+        for (int step = 1; step <= count; ++step)
+        {
+            const auto& candidate = presets[(size_t) (((index + direction * step) % count + count) % count)];
+            if (! candidate.multi)
+                return candidate.file;
+        }
+        return {};
     }
 
     void PresetManager::writeState (juce::ValueTree& tree) const
@@ -592,6 +772,16 @@ namespace ambika_plugin
             node.setProperty ("comment", c.comment, nullptr);
             presets.appendChild (node, nullptr);
         }
+        if (currentMulti.name.isNotEmpty())
+        {
+            juce::ValueTree node (kMultiNode);
+            node.setProperty ("name", currentMulti.name, nullptr);
+            node.setProperty ("file", currentMulti.file.getFullPathName(), nullptr);
+            node.setProperty ("tags", currentMulti.tags.joinIntoString (","), nullptr);
+            node.setProperty ("author", currentMulti.author, nullptr);
+            node.setProperty ("comment", currentMulti.comment, nullptr);
+            presets.appendChild (node, nullptr);
+        }
         tree.appendChild (presets, nullptr);
     }
 
@@ -599,20 +789,27 @@ namespace ambika_plugin
     {
         for (int part = 0; part < kNumParts; ++part)
             current[(size_t) part] = Current();
+        currentMulti = CurrentMulti();
         const auto presets = tree.getChildWithName (kStateNode);
+        if (const auto multi = presets.getChildWithName (kMultiNode); multi.isValid())
+        {
+            currentMulti.name = multi.getProperty ("name", {}).toString();
+            currentMulti.file = storedFile (multi.getProperty ("file", {}).toString());
+            currentMulti.tags = juce::StringArray::fromTokens (multi.getProperty ("tags", {}).toString(), ",", {});
+            currentMulti.tags.removeEmptyStrings();
+            currentMulti.author = multi.getProperty ("author", {}).toString();
+            currentMulti.comment = multi.getProperty ("comment", {}).toString();
+        }
         for (const auto& node : presets)
         {
+            if (! node.hasType (kPartNode))
+                continue;
             const int part = node.getProperty ("index", -1);
             if (part < 0 || part >= kNumParts)
                 continue;
             auto& c = current[(size_t) part];
             c.name = node.getProperty ("name", "Init").toString();
-            const auto path = node.getProperty ("file", {}).toString();
-            if (portablePath (path).startsWith (kFactoryFolder))
-                c.file = factoryFile (path.fromLastOccurrenceOf ("/", false, false)
-                                          .fromLastOccurrenceOf ("\\", false, false));
-            else
-                c.file = juce::File::isAbsolutePath (path) ? juce::File (path) : juce::File();
+            c.file = storedFile (node.getProperty ("file", {}).toString());
             c.tags = juce::StringArray::fromTokens (node.getProperty ("tags", {}).toString(), ",", {});
             c.tags.removeEmptyStrings();
             c.author = node.getProperty ("author", {}).toString();

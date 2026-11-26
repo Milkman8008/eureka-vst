@@ -276,6 +276,26 @@ int main (int argc, char** argv)
     snapshot (*editor, base, "highlight");
     ambika_plugin::Palette::setPartOverride (1, {});
     editor->highlightsChanged();
+    {
+        // The colour pop-up's panel, where the pop-up opens (under the
+        // header's colour button). A real pop-up closes at once offscreen.
+        auto panel = editor->createHighlightEditor();
+        struct Frame final : juce::Component
+        {
+            void paint (juce::Graphics& g) override
+            {
+                g.fillAll (ambika_plugin::Palette::panelRaised);
+                g.setColour (ambika_plugin::Palette::outline);
+                g.drawRect (getLocalBounds());
+            }
+        } frame;
+        frame.setBounds (panel->getBounds().withPosition (840, 64).expanded (1));
+        frame.addAndMakeVisible (*panel);
+        panel->setTopLeftPosition (1, 1);
+        editor->addAndMakeVisible (frame);
+        snapshot (*editor, base, "highlight-popup");
+        editor->removeChildComponent (&frame);
+    }
 
     // Presets: a few saved sounds, part 2 modified after loading.
     auto& presets = processor.presets();
@@ -284,6 +304,7 @@ int main (int argc, char** argv)
     setParameter (processor, "p2_filter_cutoff", 70.0f);
     presets.save (2, "Acid Line", { "Bass", "Mono", "acid" }, "someone", {}, true);
     presets.save (3, "Glass Bell", { "Bell", "FX" }, {}, {}, true);
+    presets.saveMulti ("Split Keys and Choir", { "Keys" }, "eureka", {}, true);
     setParameter (processor, "p2_filter_resonance", 30.0f);
     editor->showPage (3);
     snapshot (*editor, base, "presets");
@@ -303,6 +324,10 @@ int main (int argc, char** argv)
     setParameter (processor, "p2_filter_cutoff", 64.0f);
     setParameter (processor, "p2_filter_resonance", 50.0f);
     snapshot (*editor, base, "synth-ripples");
+    // The Ambika SVF: its LP/BP/HP mode is in the Variant menu.
+    setParameter (processor, "p2_filter_model", 0.0f);
+    setParameter (processor, "p2_filter_mode", 1.0f);
+    snapshot (*editor, base, "synth-svf");
     setParameter (processor, "p2_filter_model", 2.0f);
     setParameter (processor, "p2_filter_variant", 3.0f);
 
@@ -327,6 +352,8 @@ int main (int argc, char** argv)
     editor->showPage (0);
     editor->showSaveDialog();
     snapshot (*editor, base, "save-dialog");
+    editor->showSaveMultiDialog();
+    snapshot (*editor, base, "save-multi-dialog");
 
     presetDir.deleteRecursively();
     processor.editorBeingDeleted (editor.get());

@@ -48,6 +48,10 @@ standalone app for macOS, and as VST3 and a standalone app for Windows.
 
 ## What's new
 
+- **Save multi**: saves the whole instrument as one multi: all six parts
+  exactly as they are, plus the voice setup. See [Multis](#multis).
+- **Colour picker**: a colour wheel and random colour palettes replace the
+  hex code box. See [The interface](#the-interface).
 - **Seq page**: the Ambika's arpeggiator, two step sequences (also
   modulation sources) and note pattern, in sync with your DAW. See
   [Seq page](#seq-page-arpeggiator-and-sequencer).
@@ -113,9 +117,11 @@ To build it yourself, see [Building](#building).
 - **Voices**: one light per voice, in the colour of the part that is playing
   on it.
 - **Out**: master output level.
-- **Colour swatch**: type a hex code (for example `#E0457B`) to change the
-  highlight colour for the edited part, or tick **All parts** to change every
-  part. **Reset** restores the theme colours.
+- **Colour swatch**: opens the colour picker. Click or drag on the colour
+  wheel (and use the slider for brightness) to colour the edited part, or
+  tick **All parts** to colour every part. Under **Random palettes**, click
+  a row to give the six parts its colours; **Shuffle** makes new palettes.
+  **Reset** restores the theme colours.
 - **Sun / moon**: switches between light and dark mode.
 
 **Preset bar (under the header)**: shows the edited part's preset. A `*`
@@ -141,7 +147,8 @@ means it has changed since it was loaded or saved.
 - **Filter**: choose the **Model** (new sounds start with Ripples; sounds
   from earlier versions and Ambika files keep the Ambika SVF):
   - **Ripples**: see below.
-  - **Ambika SVF**: low-pass, band-pass or high-pass.
+  - **Ambika SVF**: **Variant** picks low-pass, band-pass or high-pass
+    (LP, BP, HP).
   - **Surge filters**, chosen with **Model**:
     - MULTI Xpander
     - LP Diode Ladder
@@ -243,12 +250,13 @@ eureka! listens on every MIDI channel. The sustain pedal works in all modes.
 
 ## Presets
 
-A preset stores the sound of one part. The voice setup on the Multi page is
-saved with your DAW project instead.
+A preset stores the sound of one part. To keep all six parts and the voice
+setup together, save a [multi](#multis).
 
 - **< / >**: previous or next preset.
 - **Save**: overwrites the current preset.
 - **Save as...**: saves a new preset with a name, tags, author and comment.
+- **Save multi...**: saves everything as a multi (see below).
 - **Init**: resets the edited part, or **Everything** (all six parts plus
   the voice setup).
 - **Browse**: search, filter by tag, double-click to load, rename, delete,
@@ -268,6 +276,25 @@ dumps (`.syx`). It can load a file straight into the edited part (a `.MUL`
 multi sets up all six parts; a `.SEQ` sets only the part's arpeggiator and
 sequences), or add whole folders to your library under `presets/Imported`.
 Programs bring their arpeggiator settings and sequences with them.
+
+### Multis
+
+**Save multi...** in the preset bar saves the whole instrument in one file:
+
+- all six parts exactly as they are now, including changes you haven't
+  saved as presets: sound, voicing, arpeggiator, sequences and note pattern;
+- the Multi page: which part each voice card plays, voice outputs, voice
+  mode, unison and the key splits.
+
+Multis are saved in **Documents/eureka/presets/Multis** as `.eurekamulti`
+files. In the browser they have the **Multi** tag, and the details panel
+lists the six parts. Loading a multi sets up all six parts and the voice
+setup, whichever part you are editing. **< / >** skip multis, so stepping
+through sounds never changes your whole setup.
+
+Each part keeps its preset name. A part that you changed before saving the
+multi becomes the multi's own sound: **Save** then asks for a name, so its
+original preset is not overwritten.
 
 ## Window size
 
